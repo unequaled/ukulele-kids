@@ -100,6 +100,22 @@ input[type=text]{font:inherit;font-size:19px;padding:12px;border:2px solid var(-
 .needle::before{content:"";position:absolute;left:50%;top:0;bottom:0;width:4px;margin-left:-2px;background:var(--go)}
 .needle i{position:absolute;top:6px;bottom:6px;width:10px;margin-left:-5px;border-radius:5px;background:var(--ink);left:50%;transition:left .08s}
 .tread{font-size:26px;font-weight:800;min-height:38px}
+
+.rds{display:flex;justify-content:center;gap:10px;min-height:22px;margin-top:4px}
+.rds i{width:20px;height:20px;border-radius:50%;background:#e9dcc3;border:3px solid #d8c7a4}.rds i.done{background:var(--go);border-color:var(--go-d)}.rds i.now{background:#ffd23f;border-color:var(--warn);transform:scale(1.25)}
+.fruits span.maybe{filter:grayscale(1) opacity(.18)}
+.choice{display:flex;gap:22px;justify-content:center;flex-wrap:wrap}
+.choice button{width:min(26vw,170px);aspect-ratio:1;border-radius:var(--r);background:var(--card);box-shadow:0 8px 0 var(--line);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px}
+.choice button span{font-size:min(14vw,88px);line-height:1.1}.choice button small{font-size:17px;color:var(--soft);font-weight:700}
+.plan{display:flex;gap:18px;font-size:min(12vw,76px)}.plan span{filter:grayscale(1) opacity(.3);transition:.3s}.plan span.on{filter:none;transform:scale(1.15)}
+.seq{display:flex;gap:12px;justify-content:center;flex-wrap:wrap;font-size:48px;align-items:center}
+.seq>span{opacity:.45;transition:.15s}.seq>span.now{opacity:1;transform:scale(1.3)}.seq>span.done{opacity:1}
+.num{display:inline-grid;place-items:center;width:58px;height:58px;border-radius:50%;font-size:32px;font-weight:900;border:3px solid #fff;box-shadow:0 2px 0 var(--line)}
+.num.big{width:130px;height:130px;font-size:80px}.num.done{outline:5px solid var(--go)}.num.now{outline:5px solid var(--warn)}
+.strip{display:flex;gap:10px;font-size:44px;background:var(--card);border-radius:18px;padding:8px 16px;box-shadow:0 3px 0 var(--line)}
+.beats i.app{border-radius:8px;background:#d9e8ff}
+.neck{height:min(40vh,380px)}
+select{font:inherit;font-size:17px;padding:10px;border-radius:12px;border:2px solid var(--line);background:#fffdf7}
 </style>
 </head>
 <body>
