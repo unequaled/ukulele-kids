@@ -1,5 +1,5 @@
 'use strict';
-const VERSION = '0.4.1';
+const VERSION = '0.4.2';
 const KEY = 'ukulele_kids_v1';
 
 /* 頭像刻意避開弦的動物（狗、貓、魚、青蛙）和節奏動物（大象、兔子、烏龜），以免小朋友混淆 */
@@ -358,9 +358,9 @@ async function startSession(kidId) {
   hudLoop(tok);
   try {
     mark(-1); document.getElementById('skip').style.visibility = 'hidden';
-    /* 一開始先選今天的份量 */
+    /* 一開始先選今天的份量：圓點越多做越多，和上方的回數圓點同一個樣子（不用烏龜、火箭，以免被當成快慢） */
     let adj = null;
-    show(`<div class="mid2">${k.animal}</div><div class="choice"><button data-a="-1"><span>🐢</span><small>少一回</small></button><button data-a="0"><span>🙂</span><small>正常</small></button><button data-a="1"><span>🚀</span><small>多一回</small></button></div>
+    show(`<div class="mid2">${k.animal}</div><div class="choice">${[[-1, 1, '少一回'], [0, 2, '正常'], [1, 3, '多一回']].map(([a, d, t]) => `<button data-a="${a}"><span class="dots">${'<i></i>'.repeat(d)}</span><small>${t}</small></button>`).join('')}</div>
       <p class="hint">給家長：每一段的回數。前三段做完還有時間，才會進入唱唱彈彈。<br>上方的 🎤 是收音指示：綠色條是收到的音量，⭕ 是聽到而且彈對，❌ 是聽到但不對。</p>`);
     stage().querySelectorAll('[data-a]').forEach(b => b.onclick = () => { adj = +b.dataset.a; audio(); ding(); });
     if (micCapable()) micOpen().then(() => { DB.meta.micOk = true; save(); }).catch(() => { DB.meta.micOk = false; save(); });
