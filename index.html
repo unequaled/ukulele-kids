@@ -65,209 +65,47 @@ input[type=text]{font:inherit;font-size:19px;padding:12px;border:2px solid var(-
 .banner{background:#fff1d6;border:2px solid var(--warn);border-radius:18px;padding:14px 16px;font-size:16px;line-height:1.6;text-align:left;max-width:560px;-webkit-user-select:text;user-select:text}
 #toast{position:fixed;left:50%;bottom:calc(env(safe-area-inset-bottom) + 24px);transform:translateX(-50%);background:#3b2f2f;color:#fff;padding:12px 20px;border-radius:99px;font-size:16px;opacity:0;transition:.25s;pointer-events:none;z-index:9}
 #toast.show{opacity:1}
+
+/* 練習流程 */
+.bar{display:flex;align-items:center;gap:12px;min-height:64px}
+.fruits{flex:1;display:flex;justify-content:center;gap:10px;font-size:34px}
+.fruits span{filter:grayscale(1) opacity(.35);transition:.3s}.fruits span.done{filter:none}.fruits span.now{filter:none;transform:scale(1.35)}
+.xs{width:48px;height:48px;font-size:22px;opacity:.5}
+#stage{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:22px;text-align:center}
+.huge{font-size:min(36vw,210px);line-height:1}
+.mid2{font-size:min(18vw,96px);line-height:1}
+.ok{width:120px;height:120px;border-radius:50%;background:var(--go);box-shadow:0 8px 0 var(--go-d);font-size:56px;display:grid;place-items:center}
+.ok.small{width:84px;height:84px;font-size:38px;opacity:.85}
+.neck{height:min(46vh,420px)}
+.count{font-size:min(30vw,170px);font-weight:900;color:var(--warn);line-height:1}
+.beats{display:flex;gap:10px;flex-wrap:wrap;justify-content:center;max-width:560px}
+.beats i{width:34px;height:34px;border-radius:50%;background:#e9dcc3;transition:.1s}.beats i.on{background:var(--warn);transform:scale(1.25)}.beats i.hit{background:var(--go)}
+.jump{animation:j .32s}@keyframes j{40%{transform:translateY(-34px) scale(1.08)}}
+.stars3{font-size:72px;letter-spacing:6px}
+.stickers{display:grid;grid-template-columns:repeat(3,1fr);gap:18px}
+.stickers button{font-size:72px;width:120px;height:120px;border-radius:26px;background:var(--card);box-shadow:0 6px 0 var(--line)}
+.week{display:flex;gap:10px;justify-content:center}
+.week div{width:58px;height:58px;border-radius:16px;background:#f1e7d0;display:grid;place-items:center;font-size:34px}
+.week div.today{outline:4px solid var(--warn)}
+.isles{display:flex;gap:14px;justify-content:center;font-size:44px}
+.isles span{width:72px;height:72px;border-radius:50%;background:#f1e7d0;display:grid;place-items:center;filter:grayscale(1) opacity(.4)}
+.isles span.open{filter:none;background:#fff}.isles span.cur{filter:none;background:#ffe08a;outline:4px solid var(--warn);transform:scale(1.12)}
+.rate{border-top:2px dashed var(--line);padding-top:14px;margin-top:6px}
+.rate .row{justify-content:center}
+.rate button{padding:12px 16px;border-radius:14px;background:#f1e7d0;font-size:24px}.rate button.sel{background:#ffd23f}
+.meter{height:22px;border-radius:11px;background:#f1e7d0;overflow:hidden;margin:10px 0}.meter i{display:block;height:100%;width:0;background:var(--go);transition:width .06s}
+.tuner{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}
+.tuner button{padding:14px 4px;border-radius:16px;color:#fff;font-weight:800;font-size:20px}.tuner button small{display:block;font-size:28px}
+.needle{position:relative;height:56px;background:#f6edd9;border-radius:14px;margin:14px 0}
+.needle::before{content:"";position:absolute;left:50%;top:0;bottom:0;width:4px;margin-left:-2px;background:var(--go)}
+.needle i{position:absolute;top:6px;bottom:6px;width:10px;margin-left:-5px;border-radius:5px;background:var(--ink);left:50%;transition:left .08s}
+.tread{font-size:26px;font-weight:800;min-height:38px}
 </style>
 </head>
 <body>
 <div id="app"></div><div id="toast"></div>
-<script>
-'use strict';
-const VERSION='0.1.0';
-const KEY='ukulele_kids_v1';
-/* 頭像刻意避開弦的動物（狗、貓、魚、青蛙）和節奏動物（大象、兔子、烏龜），以免小朋友混淆 */
-const ANIMALS=['🦁','🐼','🐨','🐵','🦊','🐯','🐧','🦄','🐻','🦉','🐷','🐮'];
-const TINTS=['#ffd6e0','#d9e8ff','#e3d9ff','#ffe2c4','#d5f2e3','#fff0b3'];
-const DAYS=['日','一','二','三','四','五','六'];
-const $=document.getElementById('app');
-const esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+<script src="pitch.js"></script>
+<script src="app.js"></script>
 
-/* ---------- 資料：只存在這台裝置 ---------- */
-let memOnly=false;
-const fresh=()=>({v:1,kids:[],settings:{classDay:null,minutes:15,split:false},meta:{createdAt:new Date().toISOString(),updatedAt:null,lastExport:null,micOk:null}});
-function normalize(d){
-  if(!d||typeof d!=='object'||!Array.isArray(d.kids))return null;
-  const o=fresh();
-  o.kids=d.kids.filter(k=>k&&typeof k.id==='string').slice(0,6).map((k,i)=>({id:k.id,name:String(k.name||'').slice(0,12),animal:ANIMALS.includes(k.animal)?k.animal:ANIMALS[i],tint:TINTS.includes(k.tint)?k.tint:TINTS[i%TINTS.length],createdAt:k.createdAt||new Date().toISOString()}));
-  const s=d.settings||{};
-  o.settings.classDay=Number.isInteger(s.classDay)&&s.classDay>=0&&s.classDay<=6?s.classDay:null;
-  o.settings.minutes=[10,15].includes(s.minutes)?s.minutes:15;
-  o.settings.split=!!s.split;
-  Object.assign(o.meta,d.meta&&typeof d.meta==='object'?d.meta:{});
-  return o;
-}
-function load(){try{return normalize(JSON.parse(localStorage.getItem(KEY)))||fresh()}catch(e){memOnly=true;return fresh()}}
-let DB=load();
-function save(){DB.meta.updatedAt=new Date().toISOString();try{localStorage.setItem(KEY,JSON.stringify(DB))}catch(e){memOnly=true}}
-let persisted=null;
-if(navigator.storage&&navigator.storage.persist)navigator.storage.persist().then(p=>{persisted=p}).catch(()=>{});
-
-/* ---------- 環境 ---------- */
-const standalone=()=>window.navigator.standalone===true||matchMedia('(display-mode: standalone)').matches;
-const isIOS=()=>/iPad|iPhone|iPod/.test(navigator.userAgent)||(navigator.platform==='MacIntel'&&navigator.maxTouchPoints>1);
-const secure=()=>window.isSecureContext;
-
-/* ---------- 聲音與語音 ---------- */
-let AC=null;
-function audio(){AC=AC||new (window.AudioContext||window.webkitAudioContext)();if(AC.state==='suspended')AC.resume();return AC}
-function ding(freqs=[784,1047],gap=.11){try{const ac=audio();freqs.forEach((f,i)=>{const o=ac.createOscillator(),g=ac.createGain(),t=ac.currentTime+i*gap;o.type='triangle';o.frequency.value=f;g.gain.setValueAtTime(0,t);g.gain.linearRampToValueAtTime(.25,t+.01);g.gain.exponentialRampToValueAtTime(.001,t+.4);o.connect(g).connect(ac.destination);o.start(t);o.stop(t+.45)})}catch(e){}}
-let VOICE=null;
-function pickVoice(){if(!('speechSynthesis' in window))return;const v=speechSynthesis.getVoices();VOICE=v.find(x=>/zh[-_]TW/i.test(x.lang))||v.find(x=>/^zh/i.test(x.lang))||null}
-if('speechSynthesis' in window){pickVoice();speechSynthesis.onvoiceschanged=pickVoice}
-function say(text){if(!('speechSynthesis' in window))return;try{speechSynthesis.cancel();const u=new SpeechSynthesisUtterance(text);u.lang='zh-TW';if(VOICE)u.voice=VOICE;u.rate=.85;u.pitch=1.15;speechSynthesis.speak(u)}catch(e){}}
-function toast(m){const t=document.getElementById('toast');t.textContent=m;t.classList.add('show');clearTimeout(toast.t);toast.t=setTimeout(()=>t.classList.remove('show'),2200)}
-
-/* ---------- 麥克風 ---------- */
-let MIC=null;
-async function micStart(onLevel){
-  micStop();
-  const stream=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:false,noiseSuppression:false,autoGainControl:false}});
-  const ac=audio(),src=ac.createMediaStreamSource(stream),an=ac.createAnalyser();an.fftSize=1024;src.connect(an);
-  const buf=new Float32Array(an.fftSize);let raf=0,prev=0,last=0;
-  const tick=()=>{an.getFloatTimeDomainData(buf);let s=0;for(let i=0;i<buf.length;i++)s+=buf[i]*buf[i];const rms=Math.sqrt(s/buf.length);
-    const now=performance.now();const hit=rms>.05&&rms>prev*1.6&&now-last>300;if(hit)last=now;prev=prev*.7+rms*.3;onLevel(rms,hit);raf=requestAnimationFrame(tick)};
-  tick();
-  MIC={stop(){cancelAnimationFrame(raf);stream.getTracks().forEach(t=>t.stop());try{src.disconnect()}catch(e){}}};
-}
-function micStop(){if(MIC){MIC.stop();MIC=null}}
-
-/* ---------- 畫面切換 ---------- */
-let VIEW='home',ARG=null;
-function go(v,a){micStop();if('speechSynthesis' in window)speechSynthesis.cancel();VIEW=v;ARG=a===undefined?null:a;render();window.scrollTo(0,0)}
-function render(){({home:vHome,kid:vKid,sound:vSound,soon:vSoon,gate:vGate,parent:vParent,edit:vEdit}[VIEW]||vHome)()}
-const kidOf=id=>DB.kids.find(k=>k.id===id);
-
-/* 首頁：選頭像 */
-function vHome(){
-  const needInstall=isIOS()&&!standalone();
-  $.innerHTML=`<div class="top"><span></span><button class="round gear" id="pg" aria-label="家長模式">⚙️</button></div>
-  <div class="mid"><div class="logo">🎶🏝️</div>
-  ${DB.kids.length?`<div class="kids">${DB.kids.map(k=>`<button class="kid" data-id="${k.id}" style="background:${k.tint}"><span class="face">${k.animal}</span><span class="nm">${esc(k.name)}</span></button>`).join('')}</div>`
-    :`<div class="banner"><b>給家長：</b>還沒有小朋友的資料。請點右上角的 ⚙️ 進入家長模式，新增小朋友並選一個動物頭像。</div>`}
-  ${needInstall?`<div class="banner"><b>給家長：</b>請先把這個網頁加到主畫面再開始設定。<br>在 Safari 按分享按鈕 <b>⬆️</b>，選「<b>加入主畫面</b>」，之後都從主畫面的圖示打開。<br>在 Safari 裡建立的資料<b>不會</b>帶到主畫面的 App 裡。</div>`:''}
-  </div>`;
-  document.getElementById('pg').onclick=()=>go('gate');
-  $.querySelectorAll('.kid').forEach(b=>b.onclick=()=>{ding();go('kid',b.dataset.id)});
-}
-
-/* 小朋友首頁：一個大大的開始 */
-function vKid(){
-  const k=kidOf(ARG);if(!k)return go('home');
-  $.innerHTML=`<div class="top"><button class="round" id="bk" aria-label="回首頁">🏠</button><span></span></div>
-  <div class="mid"><div class="big pop">${k.animal}</div>
-  <button class="play bounce" id="st" aria-label="開始"><svg viewBox="0 0 100 100"><path d="M18 8 L92 50 L18 92 Z" fill="#fff" stroke="#fff" stroke-width="10" stroke-linejoin="round"/></svg></button></div>`;
-  document.getElementById('bk').onclick=()=>go('home');
-  document.getElementById('st').onclick=()=>{audio();ding([523,659,784]);say(`嗨，${k.name||'小朋友'}！拿好你的烏克麗麗，刷刷看，把星星點亮！`);go2sound(k.id)};
-}
-function go2sound(id){micStop();VIEW='sound';ARG=id;render()} /* 不經過 go()，避免把剛開始的語音取消 */
-
-/* 聲音測試：刷三下，把星星點亮（同時完成麥克風授權） */
-function vSound(){
-  const k=kidOf(ARG);if(!k)return go('home');
-  $.innerHTML=`<div class="top"><button class="round" id="bk" aria-label="回上一頁">⬅️</button><span></span></div>
-  <div class="mid"><div class="star" id="star">⭐</div><div class="dots">${[0,1,2].map(i=>`<div class="dot" id="d${i}"></div>`).join('')}</div><div id="msg"></div></div>`;
-  document.getElementById('bk').onclick=()=>go('kid',k.id);
-  const star=document.getElementById('star'),msg=document.getElementById('msg');let hits=0,done=false;
-  const fail=why=>{DB.meta.micOk=false;save();star.textContent='🎤';msg.innerHTML=`<div class="banner"><b>給家長：</b>${why}</div><p><button class="btn" id="sk">先跳過</button></p>`;document.getElementById('sk').onclick=()=>go('soon',k.id)};
-  if(!secure()||!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia)return fail('這個網址不能使用麥克風。請用 <b>https://</b> 開頭的網址打開。');
-  micStart((rms,hit)=>{
-    if(done)return;const lv=Math.min(1,rms*9);
-    star.style.transform=`scale(${1+lv*.35})`;star.style.filter=`grayscale(${Math.max(0,.7-lv*1.2)}) opacity(${.6+lv*.4})`;
-    if(hit&&hits<3){document.getElementById('d'+hits).classList.add('on');document.getElementById('d'+hits).textContent='🎵';hits++;ding([660+hits*110],0);
-      if(hits===3){done=true;star.style.filter='none';star.style.transform='scale(1.3)';star.classList.add('pop');ding([523,659,784,1047]);say('好棒！星星亮起來了！');setTimeout(()=>{if(VIEW==='sound')go('soon',k.id)},2600)}}
-  }).then(()=>{DB.meta.micOk=true;save()}).catch(()=>fail('沒有取得麥克風權限。請在跳出的視窗選「<b>允許</b>」；如果沒有跳出視窗，請到 iPad 的「設定 → Safari → 麥克風」改成「允許」。'));
-}
-
-/* 練習內容尚未完成的提示 */
-function vSoon(){
-  const k=kidOf(ARG);if(!k)return go('home');
-  $.innerHTML=`<div class="top"><button class="round" id="bk" aria-label="回首頁">🏠</button><span></span></div>
-  <div class="mid"><div class="big">🏝️</div><div style="font-size:64px">🚧 ${k.animal} 🚧</div><button class="round" id="sp" aria-label="再聽一次">🔊</button>
-  <p class="hint">給家長：每日練習的內容（暖身、節奏、和弦）還在製作中，完成後這裡會直接開始 ${DB.settings.minutes} 分鐘的練習。</p></div>`;
-  const t='練習的小島快要蓋好了，我們下次再來玩！';
-  document.getElementById('bk').onclick=()=>go('home');document.getElementById('sp').onclick=()=>say(t);say(t);
-}
-
-/* 家長閘門：一題加法 */
-function vGate(){
-  const a=6+Math.floor(Math.random()*4),b=4+Math.floor(Math.random()*5),ans=String(a+b);let typed='';
-  $.innerHTML=`<div class="top"><button class="round" id="bk" aria-label="回首頁">🏠</button><span></span></div>
-  <div class="mid"><div class="hint">家長請回答，才能進入家長模式</div><div class="gate">${a} + ${b} = <span id="in">？</span></div>
-  <div class="pad">${[1,2,3,4,5,6,7,8,9,'⌫',0,''].map(n=>n===''?'<span></span>':`<button data-n="${n}">${n}</button>`).join('')}</div></div>`;
-  document.getElementById('bk').onclick=()=>go('home');const out=document.getElementById('in');
-  $.querySelectorAll('.pad button').forEach(b=>b.onclick=()=>{const n=b.dataset.n;typed=n==='⌫'?typed.slice(0,-1):(typed+n).slice(0,2);out.textContent=typed||'？';
-    if(typed.length===ans.length){if(typed===ans)go('parent');else{typed='';setTimeout(()=>{out.textContent='？'},350)}}});
-}
-
-/* 家長模式 */
-function checks(){
-  const c=[];
-  c.push(secure()?['✅','安全連線（https）','可以使用麥克風。']:['⚠️','不是安全連線','目前的網址不是 https，麥克風無法使用。']);
-  if(standalone())c.push(['✅','已從主畫面開啟','資料會保存在這個 App 裡。']);
-  else if(isIOS())c.push(['⚠️','尚未加入主畫面','在 Safari 按分享按鈕 ⬆️，選「加入主畫面」，之後都從主畫面的圖示打開。現在在 Safari 建立的資料不會帶過去，建議加入主畫面後再新增小朋友。']);
-  else c.push(['ℹ️','目前是在瀏覽器裡開啟','在 iPad 上請加入主畫面使用。電腦上可以直接用。']);
-  c.push(memOnly?['⚠️','這個瀏覽器無法儲存資料','可能是私密瀏覽模式。關閉後資料會消失。']:persisted?['✅','資料保存','瀏覽器已同意長期保存資料。']:['ℹ️','資料保存','資料存在這台裝置裡。請定期用下方的「備份」匯出。']);
-  c.push(DB.meta.micOk===true?['✅','麥克風','上次測試成功。iPad 每次開啟 App 可能會再問一次，請選「允許」。']:DB.meta.micOk===false?['⚠️','麥克風','上次測試失敗。請按「測試麥克風」再試一次。']:['⬜','麥克風','還沒測試過。']);
-  c.push(!('speechSynthesis' in window)?['⚠️','語音','這個瀏覽器不支援語音朗讀。']:VOICE?['✅','中文語音',`使用「${esc(VOICE.name)}」。`]:['⬜','中文語音','還沒找到中文語音，請按「試聽語音」確認聽得到。']);
-  c.push(DB.kids.length?['✅','小朋友資料',`已建立 ${DB.kids.length} 位。`]:['⬜','小朋友資料','請在下方新增。']);
-  c.push(DB.settings.classDay!==null?['✅','上課日',`每週${DAYS[DB.settings.classDay]}。`]:['⬜','上課日','請在下方選擇每週上課是星期幾。']);
-  return c;
-}
-function vParent(){
-  const s=DB.settings,le=DB.meta.lastExport;
-  $.innerHTML=`<div class="parent"><div class="top"><h1>家長模式</h1><button class="btn ghost" id="bk">回小朋友畫面</button></div>
-  <h2>設定檢查</h2><div class="card">${checks().map(c=>`<div class="chk"><span class="ic">${c[0]}</span><div><b>${c[1]}</b><small>${c[2]}</small></div></div>`).join('')}
-   <div class="row" style="margin-top:12px"><button class="btn sm" id="tm">測試麥克風</button><button class="btn sm" id="tv">試聽語音</button><span class="small" id="tr"></span></div></div>
-  <h2>小朋友</h2><div class="card">${DB.kids.map(k=>`<div class="krow"><span class="f" style="background:${k.tint}">${k.animal}</span><span class="n">${esc(k.name)||'（未命名）'}</span><button class="btn ghost sm" data-e="${k.id}">修改</button></div>`).join('')||'<p class="small" style="margin:0 0 10px">還沒有小朋友。</p>'}
-   ${DB.kids.length<6?'<button class="btn" id="add" style="margin-top:8px">新增小朋友</button>':''}</div>
-  <h2>每週上課日</h2><div class="card"><div class="seg" id="cd">${DAYS.map((d,i)=>`<button data-d="${i}" class="${s.classDay===i?'sel':''}">${d}</button>`).join('')}<button data-d="x" class="${s.classDay===null?'sel':''}">沒有固定</button></div>
-   <p class="small" style="margin:10px 0 0">之後每日練習的內容會依上課日安排：上課後複習新內容，上課前把歌完整彈一遍。</p></div>
-  <h2>每天練習多久</h2><div class="card"><div class="seg" id="mn"><button data-m="10" class="${s.minutes===10&&!s.split?'sel':''}">10 分鐘</button><button data-m="15" class="${s.minutes===15&&!s.split?'sel':''}">15 分鐘</button><button data-m="s" class="${s.split?'sel':''}">早晚各 7 分鐘</button></div></div>
-  <h2>備份</h2><div class="card"><p class="small" style="margin-top:0">資料只存在這台裝置，不會上傳。請定期匯出，存到「檔案」App 或 iCloud。${le?`<br>上次匯出：${le.slice(0,10)}`:'<br>還沒有匯出過。'}</p>
-   <div class="row"><button class="btn" id="ex">匯出備份</button><button class="btn ghost" id="im">從備份還原</button><input type="file" id="fi" accept="application/json,.json" hidden></div></div>
-  <p class="small" style="text-align:center">版本 ${VERSION}　<a href="#" id="up">檢查更新</a></p></div>`;
-  const b=id=>document.getElementById(id);
-  b('bk').onclick=()=>go('home');
-  if(b('add'))b('add').onclick=()=>go('edit',null);
-  $.querySelectorAll('[data-e]').forEach(x=>x.onclick=()=>go('edit',x.dataset.e));
-  b('cd').querySelectorAll('button').forEach(x=>x.onclick=()=>{DB.settings.classDay=x.dataset.d==='x'?null:+x.dataset.d;save();vParent()});
-  b('mn').querySelectorAll('button').forEach(x=>x.onclick=()=>{if(x.dataset.m==='s'){DB.settings.split=true;DB.settings.minutes=15}else{DB.settings.split=false;DB.settings.minutes=+x.dataset.m}save();vParent()});
-  b('tv').onclick=()=>{audio();ding();say('你好，我是烏克麗麗小島，我們一起來練習吧！');b('tr').textContent='有聽到「叮」和中文語音嗎？沒有的話請檢查靜音開關和音量。'};
-  b('tm').onclick=async()=>{audio();b('tr').textContent='請對著 iPad 說話或刷一下琴…';let mx=0;
-    try{await micStart(r=>{mx=Math.max(mx,r)});setTimeout(()=>{micStop();DB.meta.micOk=mx>.01;save();vParent();toast(mx>.01?'麥克風正常':'沒有收到聲音，請再試一次')},3000)}
-    catch(e){DB.meta.micOk=false;save();vParent();toast('沒有取得麥克風權限')}};
-  b('ex').onclick=exportData;b('im').onclick=()=>b('fi').click();
-  b('fi').onchange=e=>{const f=e.target.files[0];if(!f)return;const r=new FileReader();r.onload=()=>{let d=null;try{d=normalize(JSON.parse(r.result))}catch(err){}
-    if(!d)return toast('這不是有效的備份檔');if(confirm(`備份裡有 ${d.kids.length} 位小朋友的資料。\n還原後會取代目前的資料，確定嗎？`)){DB=d;save();vParent();toast('已還原')}};r.readAsText(f);e.target.value=''};
-  b('up').onclick=async e=>{e.preventDefault();try{const r=await navigator.serviceWorker.getRegistration();if(r)await r.update()}catch(err){}location.reload()};
-}
-async function exportData(){
-  DB.meta.lastExport=new Date().toISOString();save();
-  const name=`ukulele-backup-${DB.meta.lastExport.slice(0,10)}.json`,text=JSON.stringify(DB,null,1);
-  try{const f=new File([text],name,{type:'application/json'});if(navigator.canShare&&navigator.canShare({files:[f]})){await navigator.share({files:[f]});vParent();return}}catch(e){if(e&&e.name==='AbortError'){vParent();return}}
-  const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([text],{type:'application/json'}));a.download=name;document.body.appendChild(a);a.click();a.remove();vParent();toast('已匯出');
-}
-
-/* 新增／修改小朋友 */
-function vEdit(){
-  const cur=ARG?kidOf(ARG):null,used=DB.kids.filter(k=>!cur||k.id!==cur.id).map(k=>k.animal);
-  let animal=cur?cur.animal:ANIMALS.find(a=>!used.includes(a));
-  $.innerHTML=`<div class="parent"><div class="top"><h1>${cur?'修改小朋友':'新增小朋友'}</h1><button class="btn ghost" id="bk">取消</button></div>
-  <h2>名字或小名</h2><input type="text" id="nm" maxlength="12" value="${cur?esc(cur.name):''}" placeholder="例如：小安" autocomplete="off">
-  <p class="small">名字只存在這台裝置，用來讓語音打招呼。</p>
-  <h2>選一個動物頭像</h2><p class="small" style="margin:0">小朋友點自己的動物就能進入。已經被選走的動物不能重複。</p>
-  <div class="pick" id="pk">${ANIMALS.map(a=>`<button data-a="${a}" class="${a===animal?'sel':''}" ${used.includes(a)?'disabled style="opacity:.25"':''}>${a}</button>`).join('')}</div>
-  <div class="row" style="margin-top:18px"><button class="btn" id="sv">儲存</button>${cur?'<button class="btn danger" id="dl">刪除這位小朋友</button>':''}</div></div>`;
-  const b=id=>document.getElementById(id);
-  b('bk').onclick=()=>go('parent');
-  b('pk').querySelectorAll('button:not([disabled])').forEach(x=>x.onclick=()=>{animal=x.dataset.a;b('pk').querySelectorAll('button').forEach(y=>y.classList.toggle('sel',y===x))});
-  b('sv').onclick=()=>{const name=b('nm').value.trim().slice(0,12);if(!name){toast('請輸入名字或小名');return}
-    if(cur){cur.name=name;cur.animal=animal}else{const tint=TINTS.find(t=>!DB.kids.some(k=>k.tint===t))||TINTS[DB.kids.length%TINTS.length];DB.kids.push({id:'k'+Date.now().toString(36),name,animal,tint,createdAt:new Date().toISOString()})}
-    save();go('parent')};
-  if(cur)b('dl').onclick=()=>{if(confirm(`確定刪除「${cur.name}」嗎？這位小朋友的紀錄會一起刪除，無法復原。`)){DB.kids=DB.kids.filter(k=>k.id!==cur.id);save();go('parent')}};
-}
-
-document.addEventListener('visibilitychange',()=>{if(document.hidden){micStop();if('speechSynthesis' in window)speechSynthesis.cancel();if(VIEW==='sound')go('kid',ARG)}});
-if('serviceWorker' in navigator&&secure())navigator.serviceWorker.register('sw.js').catch(()=>{});
-render();
-</script>
 </body>
 </html>
