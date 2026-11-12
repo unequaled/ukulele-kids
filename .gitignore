@@ -1,0 +1,5 @@
+# 備份檔含小朋友的資料，不要放進這個公開的 repo
+*backup*.json
+*.webm
+*.m4a
+.DS_Store
