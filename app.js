@@ -1,5 +1,5 @@
 'use strict';
-const VERSION = '0.4.0';
+const VERSION = '0.4.1';
 const KEY = 'ukulele_kids_v1';
 
 /* 頭像刻意避開弦的動物（狗、貓、魚、青蛙）和節奏動物（大象、兔子、烏龜），以免小朋友混淆 */
@@ -36,7 +36,7 @@ const dayStr = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '
 
 /* ================= 資料：只存在這台裝置 ================= */
 let memOnly = false;
-const fresh = () => ({ v: 4, kids: [], settings: { classDay: null, minutes: 15, split: false, maxNum: 4, notes: JSON.parse(JSON.stringify(DEFAULT_NOTES)) }, meta: { createdAt: new Date().toISOString(), updatedAt: null, lastExport: null, micOk: null } });
+const fresh = () => ({ v: 4, kids: [], settings: { classDay: null, minutes: 15, split: false, voice: false, maxNum: 4, notes: JSON.parse(JSON.stringify(DEFAULT_NOTES)) }, meta: { createdAt: new Date().toISOString(), updatedAt: null, lastExport: null, micOk: null } });
 function normalize(d) {
   if (!d || typeof d !== 'object' || !Array.isArray(d.kids)) return null;
   const o = fresh(), old = !(d.v >= 4);
@@ -59,6 +59,7 @@ function normalize(d) {
   o.settings.classDay = Number.isInteger(s.classDay) && s.classDay >= 0 && s.classDay <= 6 ? s.classDay : null;
   o.settings.minutes = [10, 15].includes(s.minutes) ? s.minutes : 15;
   o.settings.split = !!s.split;
+  o.settings.voice = s.voice === true;
   o.settings.maxNum = [4, 5, 6].includes(s.maxNum) ? s.maxNum : 4;
   for (let n = 1; n <= 6; n++) { const p = s.notes && s.notes[n]; if (Array.isArray(p) && [0, 1, 2, 3].includes(p[0]) && Number.isInteger(p[1]) && p[1] >= 0 && p[1] <= 7) o.settings.notes[n] = [p[0], p[1]]; }
   Object.assign(o.meta, d.meta && typeof d.meta === 'object' ? d.meta : {});
@@ -119,15 +120,18 @@ function pickVoice() { if (!('speechSynthesis' in window)) return; const v = spe
 if ('speechSynthesis' in window) { pickVoice(); speechSynthesis.onvoiceschanged = pickVoice; }
 let speaking = 0;
 function say(text) {
-  if (!('speechSynthesis' in window)) return 0;
+  /* 文字一定會顯示在畫面下方，語音壞掉或關掉時，家長可以照著唸 */
+  const cap = document.getElementById('cap'); if (cap) cap.textContent = text;
   const est = 700 + text.length * 300;
+  if (!DB.settings.voice || !('speechSynthesis' in window)) { speaking = 0; return est; }
   try {
-    speechSynthesis.cancel();
+    /* iPad 上「先取消再馬上說」會讓語音斷掉，所以只有真的還在說話時才取消，並稍等一下再說 */
+    const busy = speechSynthesis.speaking || speechSynthesis.pending; if (busy) speechSynthesis.cancel();
     const u = new SpeechSynthesisUtterance(text), id = ++speaking;
     u.lang = 'zh-TW'; if (VOICE) u.voice = VOICE; u.rate = .85; u.pitch = 1.15;
     u.onend = u.onerror = () => { if (speaking === id) speaking = 0; };
     setTimeout(() => { if (speaking === id) speaking = 0; }, est + 2500); /* iPad 有時不會回報唸完，用時間保底 */
-    speechSynthesis.speak(u);
+    setTimeout(() => { if (speaking === id) try { speechSynthesis.speak(u); } catch (e) { speaking = 0; } }, busy ? 120 : 0);
   } catch (e) { speaking = 0; }
   return est;
 }
@@ -257,7 +261,11 @@ const stage = () => document.getElementById('stage');
 function check(tok) { if (!tok.alive) throw CANCEL; if (tok.skip) throw SKIP; }
 async function sleep(tok, ms) { const end = performance.now() + ms; for (;;) { check(tok); const left = end - performance.now(); if (left <= 0) return; await new Promise(r => setTimeout(r, Math.min(60, left))); } }
 async function until(tok, fn, maxMs) { const end = performance.now() + (maxMs || 1e12); for (;;) { check(tok); const v = fn(); if (v) return v; if (performance.now() > end) return null; await new Promise(r => setTimeout(r, 40)); } }
-async function tell(tok, text) { const est = say(text); if (!est) return sleep(tok, 600); await sleep(tok, 250); await until(tok, () => !speaking, est + 2500); await sleep(tok, 150); }
+async function tell(tok, text) {
+  const est = say(text);
+  if (!DB.settings.voice || !('speechSynthesis' in window)) return sleep(tok, Math.min(6500, 900 + text.length * 210)); /* 留時間給家長唸 */
+  await sleep(tok, 250); await until(tok, () => !speaking, est + 2500); await sleep(tok, 150);
+}
 function show(html) { stage().innerHTML = html; }
 const pick = a => a[Math.floor(Math.random() * a.length)];
 const big = (e, id) => `<div class="huge"${id ? ` id="${id}"` : ''}>${e}</div>`;
@@ -342,7 +350,7 @@ async function startSession(kidId) {
   const tok = { alive: true, skip: false }; SESSION = tok; VIEW = 'session'; ARG = kidId;
   const k = kidOf(kidId), lv = LEVELS[k.level];
   $.innerHTML = `<div class="bar"><button class="round xs" id="quit" aria-label="離開">✖️</button><div class="fruits" id="fr">${FRUITS.map(f => `<span>${f}</span>`).join('')}</div><button class="round xs" id="skip" aria-label="跳到下一段">⏭️</button></div>
-    <div class="sub"><div class="hud" id="hud"><span id="hic">🎤</span><div class="meter"><i id="hlv"></i></div><span id="hjd"></span></div><div class="rds" id="rds"></div></div><div id="stage"></div>`;
+    <div class="sub"><div class="hud" id="hud"><span id="hic">🎤</span><div class="meter"><i id="hlv"></i></div><span id="hjd"></span></div><div class="rds" id="rds"></div></div><div id="stage"></div><div class="cap" id="cap"></div>`;
   document.getElementById('quit').onclick = () => { if (confirm('要結束今天的練習嗎？')) go('kid', kidId); };
   document.getElementById('skip').onclick = () => { tok.skip = true; };
   const mark = i => document.getElementById('fr').querySelectorAll('span').forEach((s, j) => { s.className = j < i ? 'done' : j === i ? 'now' : ''; });
@@ -535,7 +543,7 @@ async function segBeat(tok, k, n) {
 }
 
 /* ---------- 數字 Do Re Mi（老師貼的貼紙） ---------- */
-const SOLFA = ['', '兜', '瑞', '咪', '發', '搜', '啦'], NUM_ZH = ['', '一', '二', '三', '四', '五', '六'];
+const SOLFA = ['', 'Do', 'Re', 'Mi', 'Fa', 'Sol', 'La'], NUM_ZH = ['', '一', '二', '三', '四', '五', '六'];
 const noteHz = n => { const [s, f] = DB.settings.notes[n]; return STRINGS[s].hz * Math.pow(2, f / 12); };
 const numBadge = (n, cls) => { const st = STRINGS[DB.settings.notes[n][0]]; return `<span class="num ${cls || ''}" style="background:${st.color};color:${st.ink}">${n}</span>`; };
 const maxNum = () => DB.settings.maxNum;
@@ -837,6 +845,8 @@ function vParent() {
   <h2>每週上課日</h2><div class="card"><div class="seg" id="cd">${DAYS.map((d, i) => `<button data-d="${i}" class="${s.classDay === i ? 'sel' : ''}">${d}</button>`).join('')}<button data-d="x" class="${s.classDay === null ? 'sel' : ''}">沒有固定</button></div>
    <p class="small" style="margin:10px 0 0">之後每日練習的內容會依上課日安排：上課後複習新內容，上課前把歌完整彈一遍。</p></div>
   <h2>每天練習多久</h2><div class="card"><div class="seg" id="mn"><button data-m="10" class="${s.minutes === 10 && !s.split ? 'sel' : ''}">10 分鐘</button><button data-m="15" class="${s.minutes === 15 && !s.split ? 'sel' : ''}">15 分鐘</button><button data-m="s" class="${s.split ? 'sel' : ''}">早晚各 7 分鐘</button></div></div>
+  <h2>說明的方式</h2><div class="card"><div class="seg" id="vc"><button data-v="0" class="${s.voice ? '' : 'sel'}">顯示文字，家長唸</button><button data-v="1" class="${s.voice ? 'sel' : ''}">語音朗讀</button></div>
+   <p class="small" style="margin:10px 0 0">每一步的說明都會顯示在練習畫面下方。iPad 開著麥克風時，內建語音可能會斷斷續續；遇到這種情況請選「顯示文字，家長唸」。</p></div>
   <h2>老師教到數字幾</h2><div class="card"><div class="seg" id="mx">${[4, 5, 6].map(n => `<button data-x="${n}" class="${s.maxNum === n ? 'sel' : ''}">1 到 ${n}</button>`).join('')}</div>
    <p class="small" style="margin:10px 0 0">數字練習和數字歌只會出現到這個數字。老師教了新的數字再往上調。</p></div>
   <h2>數字貼紙的位置（Do Re Mi）</h2><div class="card"><p class="small" style="margin-top:0">老師在琴上貼的數字 1–6。預設是最常見的位置，和老師貼的不一樣時再改。「不按」代表貼在琴頭、直接撥空弦。</p>
@@ -854,9 +864,10 @@ function vParent() {
   b('cd').querySelectorAll('button').forEach(x => x.onclick = () => { DB.settings.classDay = x.dataset.d === 'x' ? null : +x.dataset.d; save(); vParent(); });
   b('mn').querySelectorAll('button').forEach(x => x.onclick = () => { if (x.dataset.m === 's') { DB.settings.split = true; DB.settings.minutes = 15; } else { DB.settings.split = false; DB.settings.minutes = +x.dataset.m; } save(); vParent(); });
   $.querySelectorAll('[data-ns],[data-nf]').forEach(x => x.onchange = () => { const n = x.dataset.ns || x.dataset.nf; DB.settings.notes[n][x.dataset.ns ? 0 : 1] = +x.value; save(); vParent(); });
+  b('vc').querySelectorAll('button').forEach(x => x.onclick = () => { DB.settings.voice = x.dataset.v === '1'; save(); vParent(); });
   b('mx').querySelectorAll('button').forEach(x => x.onclick = () => { DB.settings.maxNum = +x.dataset.x; save(); vParent(); });
   b('nr').onclick = () => { DB.settings.notes = JSON.parse(JSON.stringify(DEFAULT_NOTES)); save(); vParent(); };
-  b('tv').onclick = () => { audio(); ding(); say('你好，我是烏克麗麗小島，我們一起來練習吧！'); b('tr').textContent = '有聽到「叮」和中文語音嗎？沒有的話請檢查靜音開關和音量。'; };
+  b('tv').onclick = () => { audio(); ding(); const was = DB.settings.voice; DB.settings.voice = true; say('你好，我是烏克麗麗小島，我們一起來練習吧！'); DB.settings.voice = was; b('tr').textContent = '有聽到「叮」和中文語音嗎？沒有的話請檢查靜音開關和音量。'; };
   b('tm').onclick = async () => {
     audio(); micStop(); b('mt').hidden = false; b('tr').textContent = '請對著 iPad 說話或刷一下琴，看綠色的條有沒有動（測 6 秒）…';
     if (!micCapable()) { b('tr').textContent = '這個網址不能使用麥克風，請用 https:// 開頭的網址打開。'; return; }
