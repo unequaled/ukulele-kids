@@ -1,5 +1,5 @@
 /* 離線使用：有網路時一律拿最新版，沒網路時才用上次存下來的版本 */
-const CACHE = 'ukulele-kids-v2';
+const CACHE = 'ukulele-kids-v3';
 const CORE = ['./', 'index.html', 'app.js', 'pitch.js', 'manifest.json', 'icons/icon-180.png', 'icons/icon-192.png', 'icons/icon-512.png'];
 
 self.addEventListener('install', e => {

@@ -1,5 +1,5 @@
 'use strict';
-const VERSION = '0.2.0';
+const VERSION = '0.2.1';
 const KEY = 'ukulele_kids_v1';
 
 /* 頭像刻意避開弦的動物（狗、貓、魚、青蛙）和節奏動物（大象、兔子、烏龜），以免小朋友混淆 */
@@ -127,16 +127,18 @@ function toast(m) { const t = document.getElementById('toast'); t.textContent = 
    1. 分析節點要接到輸出端（這裡用音量 0 的節點）才會真的收到資料。
    2. 權限視窗跳出後 AudioContext 可能被暫停，取得麥克風後要再 resume 一次。 */
 let MIC = null;
+const MIC_BOOST = 8;
 async function micOpen() {
   if (MIC) return MIC;
   const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false } });
   const ac = audio();
   try { await ac.resume(); } catch (e) {}
-  const src = ac.createMediaStreamSource(stream), an = ac.createAnalyser(), mute = ac.createGain();
+  const src = ac.createMediaStreamSource(stream), an = ac.createAnalyser(), mute = ac.createGain(), boost = ac.createGain();
   an.fftSize = 2048; an.smoothingTimeConstant = 0; mute.gain.value = 0;
-  src.connect(an); an.connect(mute); mute.connect(ac.destination);
+  boost.gain.value = MIC_BOOST; /* iPad 關掉回音消除後收音很小聲，先放大再分析 */
+  src.connect(boost); boost.connect(an); an.connect(mute); mute.connect(ac.destination);
   const buf = new Float32Array(an.fftSize);
-  const m = { rms: 0, peak: 0, floor: .002, gate: 0, deafUntil: 0, lastHit: 0, hits: [], silentFrames: 0, frames: 0, sr: ac.sampleRate, buf, raf: 0 };
+  const m = { rms: 0, peak: 0, floor: .002, gate: 0, deafUntil: 0, mutes: [], muteEnd: 0, lastHit: 0, hits: [], silentFrames: 0, frames: 0, sr: ac.sampleRate, buf, raf: 0 };
   let prev = 0;
   const tick = () => {
     if (ac.state !== 'running') ac.resume().catch(() => {});
@@ -147,14 +149,22 @@ async function micOpen() {
     m.frames++; m.silentFrames = any ? 0 : m.silentFrames + 1;
     m.rms = rms; if (rms > m.peak) m.peak = rms;
     m.floor = rms < m.floor ? m.floor * .9 + rms * .1 : m.floor * .998 + rms * .002; /* 環境音量：往下跟得快，往上跟得慢 */
-    const thr = Math.max(.008, m.floor * 3.5, m.gate);
-    if (now > m.deafUntil && rms > thr && rms > prev * 1.5 && now - m.lastHit > 230) { m.lastHit = now; m.hits.push(now); if (m.hits.length > 200) m.hits.shift(); }
-    prev = prev * .6 + rms * .4;
+    const thr = Math.max(.006, m.floor * 3, m.gate);
+    while (m.mutes.length && now > m.mutes[0][1]) m.muteEnd = m.mutes.shift()[1];
+    const muted = now < m.deafUntil || (m.mutes.length && now >= m.mutes[0][0]);
+    if (!muted) {
+      if (rms > thr && rms > prev * 1.4 && now - m.lastHit > 230) {
+        /* 剛離開靜音區就偵測到：小朋友是在節拍聲響的那一瞬間彈的，時間往前算 */
+        const at = now - m.muteEnd < 45 ? m.muteEnd - 90 : now;
+        m.lastHit = now; m.hits.push(at); if (m.hits.length > 200) m.hits.shift();
+      }
+      prev = prev * .6 + rms * .4;
+    }
     m.raf = requestAnimationFrame(tick);
   };
-  m.pitch = () => (performance.now() > m.deafUntil && m.rms > Math.max(.006, m.floor * 2.5)) ? detectPitch(buf, m.sr) : 0;
+  m.pitch = () => (performance.now() > m.deafUntil && m.rms > Math.max(.004, m.floor * 2.5)) ? detectPitch(buf, m.sr) : 0;
   m.dead = () => m.frames > 40 && m.silentFrames > 40; /* 有權限卻完全沒有資料 */
-  m.stop = () => { cancelAnimationFrame(m.raf); stream.getTracks().forEach(t => t.stop()); try { src.disconnect(); an.disconnect(); mute.disconnect(); } catch (e) {} };
+  m.stop = () => { cancelAnimationFrame(m.raf); stream.getTracks().forEach(t => t.stop()); try { src.disconnect(); boost.disconnect(); an.disconnect(); mute.disconnect(); } catch (e) {} };
   tick();
   MIC = m;
   return m;
@@ -305,26 +315,27 @@ async function beatRound(tok, o) {
   const t0 = ac.currentTime + .35, p0 = performance.now() + 350;
   for (let i = 0; i < 4; i++) click(t0 + i * spb, true);
   for (let i = 0; i < beats; i++) click(t0 + (4 + i) * spb, false);
-  if (MIC) { MIC.gate = 0; MIC.peak = 0; }
+  /* 節拍聲會從 iPad 喇叭傳進麥克風，所以每一聲前後短暫不聽，避免把節拍聲當成小朋友彈的 */
+  if (MIC) { MIC.gate = 0; MIC.mutes = []; for (let i = 0; i < 4 + beats; i++) { const bt = p0 + i * spb * 1000; MIC.mutes.push([bt - 20, bt + 150]); } }
   const el = () => document.getElementById('el'), bounce = () => { const e = el(); if (e) { e.classList.remove('jump'); void e.offsetWidth; e.classList.add('jump'); } };
   for (let i = 0; i < 4; i++) { await sleep(tok, p0 + i * spb * 1000 - performance.now()); const c = document.getElementById('cnt'); if (c) c.textContent = i + 1; }
-  /* 預備拍時小朋友還沒開始彈，這段收到的是節拍聲本身，拿來當門檻，避免把節拍聲當成小朋友彈的 */
-  await sleep(tok, p0 + 3.6 * spb * 1000 - performance.now());
-  if (MIC) { MIC.gate = MIC.peak * 1.5; MIC.hits.length = 0; }
+  await sleep(tok, p0 + 3.5 * spb * 1000 - performance.now());
+  if (MIC) MIC.hits.length = 0;
   const dots = document.getElementById('bt').children;
   for (let i = 0; i < beats; i++) {
     await sleep(tok, p0 + (4 + i) * spb * 1000 - performance.now());
     const c = document.getElementById('cnt'); if (c) c.textContent = '';
     bounce(); if (dots[i]) dots[i].classList.add('on');
-    if (o.demo) strum(o.demo, undefined, .12);
   }
   await sleep(tok, spb * 700);
   let hit = 0;
   if (MIC) {
-    for (let i = 0; i < beats; i++) { const bt = p0 + (4 + i) * spb * 1000 + 60; if (MIC.hits.some(h => Math.abs(h - bt) < 210)) { hit++; if (dots[i]) dots[i].classList.add('hit'); } }
-    MIC.gate = 0;
+    /* 5 歲小朋友的標準放寬：前後 0.3 秒內都算跟上，跟上一半就是三顆星 */
+    const win = Math.min(320, spb * 1000 * .42);
+    for (let i = 0; i < beats; i++) { const bt = p0 + (4 + i) * spb * 1000 + 50; if (MIC.hits.some(h => Math.abs(h - bt) < win)) { hit++; if (dots[i]) dots[i].classList.add('hit'); } }
+    MIC.mutes = [];
   }
-  const stars = !MIC ? 3 : hit >= beats * .75 ? 3 : hit >= beats * .4 ? 2 : 1;
+  const stars = !MIC ? 3 : hit >= beats * .5 ? 3 : hit >= beats * .25 ? 2 : 1;
   show(`<div class="huge">${o.icon || '🐘'}</div><div class="stars3 pop">${'⭐'.repeat(stars)}</div>`);
   ding(stars === 3 ? [523, 659, 784, 1047] : [659, 784]);
   await sleep(tok, 1600);
@@ -380,19 +391,20 @@ const SKILLS = [
   /* 2 大象島 */
   async (tok) => {
     await tell(tok, '大象走路，一步，一步，慢慢走。大象跳一下，你就從上往下刷一下。');
-    do { await beatRound(tok, { bpm: 60, beats: 8, demo: OPEN }); if (!timeUp(tok)) await tell(tok, '再來一次，跟好大象喔！'); } while (!timeUp(tok));
+    strum(OPEN); await sleep(tok, 1500);
+    do { await beatRound(tok, { bpm: 60, beats: 8 }); if (!timeUp(tok)) await tell(tok, '再來一次，跟好大象喔！'); } while (!timeUp(tok));
   },
   /* 3 太陽島：C 和弦 */
   async (tok) => {
     const card = `<div class="mid2">☀️</div>${neckSVG({ dots: [[3, 3]], nums: true })}`;
-    await tell(tok, '今天學太陽和弦。');
+    await tell(tok, '今天學太陽和弦。聽聽看它的聲音。'); strum(CHORD_C); await sleep(tok, 1600);
     say('用無名指，按住綠色青蛙弦的第三格。按在格子裡面，靠近下面那條線。'); await tapNext(tok, card, '按好了', 40000);
     let n = 0;
     do {
       show(card + YES); await tell(tok, '按好了嗎？撥一下青蛙弦，聽聽看。');
       if (await hearNote(tok, 523.25, 9000)) { ding(); await sleep(tok, 500); }
       await tell(tok, '好，現在跟著大象刷四下。');
-      await beatRound(tok, { bpm: 60, beats: 4, icon: '☀️', demo: CHORD_C });
+      await beatRound(tok, { bpm: 60, beats: 4, icon: '☀️' });
       if (!timeUp(tok)) { show('<div class="huge">👋</div>'); await tell(tok, '手放開，甩一甩。再按一次太陽和弦！'); await tapNext(tok, card, '按好了', 30000); }
     } while (!timeUp(tok) && ++n < 12);
   },
@@ -523,9 +535,9 @@ function vParent() {
     const end = performance.now() + 6000;
     const loop = () => {
       if (VIEW !== 'parent' || MIC !== m) return;
-      const bar = b('ml'); if (bar) bar.style.width = Math.min(100, m.rms * 900) + '%';
+      const bar = b('ml'); if (bar) bar.style.width = Math.min(100, m.rms * 250) + '%';
       if (performance.now() < end) { go.raf = requestAnimationFrame(loop); return; }
-      const ok = m.peak > .004, info = `（狀態 ${AC.state}，最大音量 ${m.peak.toFixed(4)}，取樣率 ${m.sr}${m.dead() ? '，沒有任何資料' : ''}）`;
+      const ok = m.peak > .02, info = `（狀態 ${AC.state}，最大音量 ${m.peak.toFixed(3)}（已放大 ${MIC_BOOST} 倍），取樣率 ${m.sr}${m.dead() ? '，沒有任何資料' : ''}）`;
       micStop(); DB.meta.micOk = ok; save(); vParent(); b('tr').textContent = (ok ? '麥克風正常，有收到聲音。' : '沒有收到聲音。請再按一次「測試麥克風」；如果還是不行，請把下面括號裡的文字告訴 Claude。') + info;
     };
     loop();
