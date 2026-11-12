@@ -1,5 +1,5 @@
 'use strict';
-const VERSION = '0.3.0';
+const VERSION = '0.4.0';
 const KEY = 'ukulele_kids_v1';
 
 /* 頭像刻意避開弦的動物（狗、貓、魚、青蛙）和節奏動物（大象、兔子、烏龜），以免小朋友混淆 */
@@ -22,10 +22,10 @@ const CHORD_C = [392.00, 261.63, 329.63, 523.25];
 
 /* 目前做好的關卡（之後的階段會繼續往後加） */
 const LEVELS = [
-  { icon: '🏠', name: '出發島', skill: '認識琴、抱琴、刷一下', say: '認識烏克麗麗' },
-  { icon: '🌈', name: '彩虹島', skill: '四條彩色弦', say: '四條彩色弦' },
-  { icon: '🐘', name: '大象島', skill: '大象拍：一拍刷一下', say: '跟著大象刷琴' },
-  { icon: '☀️', name: '太陽島', skill: 'C 和弦（太陽和弦）', say: '太陽和弦' },
+  { icon: '🏠', name: '出發島', skill: '數字 Do Re Mi', say: '數字 Do Re Mi' },
+  { icon: '🌈', name: '彩虹島', skill: 'C 和弦', say: 'C 和弦' },
+  { icon: '🐘', name: '大象島', skill: 'Am 和弦（A 小和弦）', say: 'A 小和弦' },
+  { icon: '☀️', name: '太陽島', skill: '換和弦：C 和 Am', say: '換和弦' },
 ];
 const MAX_LEVEL = LEVELS.length - 1;
 
@@ -36,10 +36,10 @@ const dayStr = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '
 
 /* ================= 資料：只存在這台裝置 ================= */
 let memOnly = false;
-const fresh = () => ({ v: 3, kids: [], settings: { classDay: null, minutes: 15, split: false, notes: JSON.parse(JSON.stringify(DEFAULT_NOTES)) }, meta: { createdAt: new Date().toISOString(), updatedAt: null, lastExport: null, micOk: null } });
+const fresh = () => ({ v: 4, kids: [], settings: { classDay: null, minutes: 15, split: false, maxNum: 4, notes: JSON.parse(JSON.stringify(DEFAULT_NOTES)) }, meta: { createdAt: new Date().toISOString(), updatedAt: null, lastExport: null, micOk: null } });
 function normalize(d) {
   if (!d || typeof d !== 'object' || !Array.isArray(d.kids)) return null;
-  const o = fresh();
+  const o = fresh(), old = !(d.v >= 4);
   o.kids = d.kids.filter(k => k && typeof k.id === 'string').slice(0, 6).map((k, i) => {
     const days = {}, stars = {};
     if (k.days && typeof k.days === 'object') for (const [dt, v] of Object.entries(k.days)) if (/^\d{4}-\d\d-\d\d$/.test(dt) && v) days[dt] = { sticker: STICKERS.includes(v.sticker) ? v.sticker : STICKERS[0], n: Math.max(1, v.n | 0) };
@@ -47,17 +47,19 @@ function normalize(d) {
     return {
       id: k.id, name: String(k.name || '').slice(0, 12), animal: ANIMALS.includes(k.animal) ? k.animal : ANIMALS[i],
       tint: TINTS.includes(k.tint) ? k.tint : TINTS[i % TINTS.length], createdAt: k.createdAt || new Date().toISOString(),
-      level: Number.isInteger(k.level) ? Math.min(MAX_LEVEL, Math.max(0, k.level)) : 0, days, stars,
+      level: !old && Number.isInteger(k.level) ? Math.min(MAX_LEVEL, Math.max(0, k.level)) : 0, days, stars: old ? {} : stars,
+      warm: { lv: Math.min(3, Math.max(0, (k.warm && k.warm.lv) | 0)), ok: Math.max(0, (k.warm && k.warm.ok) | 0) },
       n: Number.isInteger(k.n) && k.n >= 0 ? k.n : 0,
       rhythm: { lv: Math.min(5, Math.max(0, (k.rhythm && k.rhythm.lv) | 0)), streak: Math.max(0, (k.rhythm && k.rhythm.streak) | 0) },
       solfa: { step: Math.min(3, Math.max(0, (k.solfa && k.solfa.step) | 0)), ok: Math.max(0, (k.solfa && k.solfa.ok) | 0) },
-      stage: Object.fromEntries(Object.entries(k.stage && typeof k.stage === 'object' ? k.stage : {}).filter(([a, b]) => /^\d$/.test(a) && [0, 1, 2].includes(b))),
+      stage: Object.fromEntries(Object.entries(!old && k.stage && typeof k.stage === 'object' ? k.stage : {}).filter(([a, b]) => /^\d$/.test(a) && [0, 1, 2].includes(b))),
     };
   });
   const s = d.settings || {};
   o.settings.classDay = Number.isInteger(s.classDay) && s.classDay >= 0 && s.classDay <= 6 ? s.classDay : null;
   o.settings.minutes = [10, 15].includes(s.minutes) ? s.minutes : 15;
   o.settings.split = !!s.split;
+  o.settings.maxNum = [4, 5, 6].includes(s.maxNum) ? s.maxNum : 4;
   for (let n = 1; n <= 6; n++) { const p = s.notes && s.notes[n]; if (Array.isArray(p) && [0, 1, 2, 3].includes(p[0]) && Number.isInteger(p[1]) && p[1] >= 0 && p[1] <= 7) o.settings.notes[n] = [p[0], p[1]]; }
   Object.assign(o.meta, d.meta && typeof d.meta === 'object' ? d.meta : {});
   return o;
@@ -148,7 +150,7 @@ async function micOpen() {
   boost.gain.value = MIC_BOOST; /* iPad 關掉回音消除後收音很小聲，先放大再分析 */
   src.connect(boost); boost.connect(an); an.connect(mute); mute.connect(ac.destination);
   const buf = new Float32Array(an.fftSize);
-  const m = { rms: 0, peak: 0, floor: .002, gate: 0, deafUntil: 0, mutes: [], muteEnd: 0, lastHit: 0, nHits: 0, hits: [], silentFrames: 0, frames: 0, sr: ac.sampleRate, buf, raf: 0 };
+  const m = { rms: 0, peak: 0, floor: .002, gate: 0, deafUntil: 0, mutes: [], muteEnd: 0, lastHit: 0, nHits: 0, trackMuted: false, lost: false, hits: [], silentFrames: 0, frames: 0, sr: ac.sampleRate, buf, raf: 0 };
   let prev = 0;
   const tick = () => {
     if (ac.state !== 'running') ac.resume().catch(() => {});
@@ -174,6 +176,8 @@ async function micOpen() {
   };
   m.pitch = () => (performance.now() > m.deafUntil && m.rms > Math.max(.004, m.floor * 2.5)) ? detectPitch(buf, m.sr) : 0;
   m.dead = () => m.frames > 40 && m.silentFrames > 40; /* 有權限卻完全沒有資料 */
+  const track = stream.getAudioTracks()[0];
+  if (track) { track.onmute = () => { m.trackMuted = true; }; track.onunmute = () => { m.trackMuted = false; }; track.onended = () => { m.lost = true; }; }
   m.stop = () => { cancelAnimationFrame(m.raf); stream.getTracks().forEach(t => t.stop()); try { src.disconnect(); boost.disconnect(); an.disconnect(); mute.disconnect(); } catch (e) {} };
   tick();
   MIC = m;
@@ -243,12 +247,12 @@ function vKid() {
   document.getElementById('st').onclick = () => { audio(); ding([523, 659, 784]); startSession(k.id); };
 }
 
-/* ================= 每日練習 ================= */
+/* ================= 每日練習 =================
+   流程：暖身 → 節奏（每次都做，各自慢慢加難）→ 今天的本領（由小島決定主題）→ 有時間才唱唱彈彈 → 貼紙 */
 const CANCEL = { cancel: true }, SKIP = { skip: true };
-const FRUITS = ['🖐', '🐘', '⭐', '🎵', '🔢', '🎁'];
-const SEG_NAMES = ['暖身', '節奏', '今天的本領', '唱唱彈彈', 'Do Re Mi', '貼紙'];
-/* 每段幾回：[暖身, 節奏, 本領, 唱歌]，依家長設定的分鐘數；開始時還可以選少一回或多一回 */
-const ROUNDS = { 15: [3, 4, 5, 2], 10: [2, 3, 4, 1], 7: [2, 2, 3, 1] };
+const FRUITS = ['🖐', '🐘', '⭐', '🎵', '🎁'];
+/* 每段幾回：[暖身, 節奏, 本領]，依家長設定的分鐘數；開始時還可以選少一回或多一回。唱歌看剩下的時間 */
+const ROUNDS = { 15: [2, 3, 5], 10: [2, 2, 4], 7: [1, 2, 3] };
 const stage = () => document.getElementById('stage');
 function check(tok) { if (!tok.alive) throw CANCEL; if (tok.skip) throw SKIP; }
 async function sleep(tok, ms) { const end = performance.now() + ms; for (;;) { check(tok); const left = end - performance.now(); if (left <= 0) return; await new Promise(r => setTimeout(r, Math.min(60, left))); } }
@@ -266,14 +270,45 @@ async function tapNext(tok, html, label, maxMs) {
 }
 function deaf(ms) { if (MIC) MIC.deafUntil = performance.now() + ms; }
 const YES = '<button class="ok small" id="yes" aria-label="彈好了">👍</button>';
+
+/* ---------- 收音指示：畫面上方一直顯示 ----------
+   麥克風圖示亮起＝App 正在聽；綠色條＝收到的音量；⭕＝聽到而且是對的；❌＝聽到但不是要的音或沒對上拍子 */
+let LISTEN = 0, JUDGE = null;
+function judge(ok) { JUDGE = { ok, t: performance.now() }; }
+function hudLoop(tok) {
+  const f = () => {
+    if (!tok.alive) return;
+    const hud = document.getElementById('hud'), ic = document.getElementById('hic'), lv = document.getElementById('hlv'), jd = document.getElementById('hjd');
+    if (hud) {
+      const now = performance.now();
+      if (!MIC) { ic.textContent = '🚫'; lv.style.width = '0'; hud.className = 'hud off'; }
+      else {
+        const paused = MIC.lost || MIC.trackMuted || MIC.dead(), hearing = LISTEN > 0 && now > MIC.deafUntil && !(MIC.mutes.length && now >= MIC.mutes[0][0]);
+        ic.textContent = paused ? '⏸️' : '🎤'; hud.className = 'hud' + (paused ? ' off' : hearing ? ' on' : '');
+        lv.style.width = paused ? '0' : Math.min(100, MIC.rms * 250) + '%';
+      }
+      const fresh = JUDGE && now - JUDGE.t < 900; jd.textContent = fresh ? (JUDGE.ok ? '⭕' : '❌') : ''; jd.className = fresh ? (JUDGE.ok ? 'jo' : 'jx') : '';
+    }
+    requestAnimationFrame(f);
+  };
+  f();
+}
 /* 等小朋友彈出指定的音；沒有麥克風或一直沒偵測到時，可以按 👍 通過 */
 async function hearNote(tok, hz, maxMs) {
-  let ok = false, streak = 0; const b = document.getElementById('yes'); if (b) b.onclick = () => { ok = true; };
-  return until(tok, () => {
-    if (ok) return 'tap';
-    if (MIC) { const f = MIC.pitch(); if (f && Math.abs(centsOff(f, hz)) < 70) { if (++streak >= 2) return 'heard'; } else if (f) streak = 0; }
-    return null;
-  }, maxMs);
+  let ok = false, streak = 0, wrong = 0, lastX = 0; const b = document.getElementById('yes'); if (b) b.onclick = () => { ok = true; };
+  const h0 = MIC ? MIC.nHits : 0; /* 上一個音的餘音不算錯：要有新的一下撥弦，才會判成 ❌ */
+  LISTEN++;
+  try {
+    return await until(tok, () => {
+      if (ok) return 'tap';
+      if (MIC) {
+        const f = MIC.pitch();
+        if (f && Math.abs(centsOff(f, hz)) < 70) { wrong = 0; if (++streak >= 2) { judge(true); return 'heard'; } }
+        else if (f) { streak = 0; if (MIC.nHits > h0 && ++wrong >= 4 && performance.now() - lastX > 1200) { judge(false); lastX = performance.now(); wrong = 0; } }
+      }
+      return null;
+    }, maxMs);
+  } finally { LISTEN--; }
 }
 /* 依序彈出一串音。同一個音連續兩次時，要等到新的一下才算。onStep(i) 用來更新畫面。回傳彈對幾個 */
 async function hearSeq(tok, hzs, onStep) {
@@ -292,27 +327,33 @@ async function hearSeq(tok, hzs, onStep) {
 function setRounds(n, done) { const r = document.getElementById('rds'); if (r) r.innerHTML = n ? Array.from({ length: n }, (_, i) => `<i class="${i < done ? 'done' : i === done ? 'now' : ''}"></i>`).join('') : ''; }
 const ORD = ['一', '二', '三', '四', '五', '六', '七', '八', '九', '十'];
 async function runRounds(tok, n, fn) {
-  for (let i = 0; i < n; i++) { setRounds(n, i); if (i > 0) { show(big('👉')); await tell(tok, i === n - 1 ? '最後一回！' : `第${ORD[i] || i + 1}回`); } await fn(i, n); }
+  for (let i = 0; i < n; i++) {
+    setRounds(n, i);
+    if (MIC && MIC.lost) { micStop(); try { await micOpen(); } catch (e) {} } /* 麥克風被系統收走時，重新打開 */
+    if (i > 0) { show(big('👉')); await tell(tok, i === n - 1 ? '最後一回！' : `第${ORD[i] || i + 1}回`); }
+    await fn(i, n);
+  }
   setRounds(n, n);
 }
 
 async function startSession(kidId) {
   if (SESSION) SESSION.alive = false;
-  micStop(); hush();
+  micStop(); hush(); LISTEN = 0; JUDGE = null;
   const tok = { alive: true, skip: false }; SESSION = tok; VIEW = 'session'; ARG = kidId;
   const k = kidOf(kidId), lv = LEVELS[k.level];
-  $.innerHTML = `<div class="bar"><button class="round xs" id="quit" aria-label="離開">✖️</button><div class="fruits" id="fr">${FRUITS.map(f => `<span>${f}</span>`).join('')}</div><button class="round xs" id="skip" aria-label="跳到下一段">⏭️</button></div><div class="rds" id="rds"></div><div id="stage"></div>`;
+  $.innerHTML = `<div class="bar"><button class="round xs" id="quit" aria-label="離開">✖️</button><div class="fruits" id="fr">${FRUITS.map(f => `<span>${f}</span>`).join('')}</div><button class="round xs" id="skip" aria-label="跳到下一段">⏭️</button></div>
+    <div class="sub"><div class="hud" id="hud"><span id="hic">🎤</span><div class="meter"><i id="hlv"></i></div><span id="hjd"></span></div><div class="rds" id="rds"></div></div><div id="stage"></div>`;
   document.getElementById('quit').onclick = () => { if (confirm('要結束今天的練習嗎？')) go('kid', kidId); };
   document.getElementById('skip').onclick = () => { tok.skip = true; };
-  const fr = () => document.getElementById('fr').querySelectorAll('span');
-  const mark = i => fr().forEach((s, j) => { s.className = j < i ? 'done' : j === i ? 'now' : (j === 4 ? 'maybe' : ''); });
+  const mark = i => document.getElementById('fr').querySelectorAll('span').forEach((s, j) => { s.className = j < i ? 'done' : j === i ? 'now' : ''; });
   const mins = DB.settings.split ? 7 : DB.settings.minutes;
+  hudLoop(tok);
   try {
     mark(-1); document.getElementById('skip').style.visibility = 'hidden';
     /* 一開始先選今天的份量 */
     let adj = null;
     show(`<div class="mid2">${k.animal}</div><div class="choice"><button data-a="-1"><span>🐢</span><small>少一回</small></button><button data-a="0"><span>🙂</span><small>正常</small></button><button data-a="1"><span>🚀</span><small>多一回</small></button></div>
-      <p class="hint">給家長：每一段的回數。選「少一回」會比較快做完，剩下的時間會進入 Do Re Mi 加分關。</p>`);
+      <p class="hint">給家長：每一段的回數。前三段做完還有時間，才會進入唱唱彈彈。<br>上方的 🎤 是收音指示：綠色條是收到的音量，⭕ 是聽到而且彈對，❌ 是聽到但不對。</p>`);
     stage().querySelectorAll('[data-a]').forEach(b => b.onclick = () => { adj = +b.dataset.a; audio(); ding(); });
     if (micCapable()) micOpen().then(() => { DB.meta.micOk = true; save(); }).catch(() => { DB.meta.micOk = false; save(); });
     say(`嗨，${k.name || '小朋友'}！今天想練多少？選一個吧！`);
@@ -322,21 +363,21 @@ async function startSession(kidId) {
     document.getElementById('skip').style.visibility = '';
     if (MIC && MIC.dead()) { await tapNext(tok, big('👆'), '按一下', 15000); audio(); await sleep(tok, 400); }
     /* 預告今天的內容 */
-    show(`<div class="plan">${[0, 1, 2, 3, 5].map(i => `<span id="p${i}">${i === 2 ? lv.icon : FRUITS[i]}</span>`).join('')}</div>`);
+    show(`<div class="plan">${FRUITS.map((f, i) => `<span id="p${i}">${i === 2 ? lv.icon : f}</span>`).join('')}</div>`);
     const lit = i => { const e = document.getElementById('p' + i); if (e) e.classList.add('on'); };
-    lit(0); await tell(tok, '今天有五個遊戲。先暖身，'); lit(1); await tell(tok, '再跟大象玩節奏，'); lit(2); await tell(tok, `然後是今天的本領，${lv.say}，`); lit(3); await tell(tok, '接著唱歌，'); lit(5); await tell(tok, '最後選貼紙。拿好你的烏克麗麗，開始囉！');
-    const segs = [segWarm, segBeat, segSkill, segSong];
+    lit(0); await tell(tok, '今天先暖身，'); lit(1); await tell(tok, '再跟大象玩節奏，'); lit(2); await tell(tok, `然後是今天的本領，${lv.say}。`); lit(3); await tell(tok, '有時間的話，再來唱唱彈彈，'); lit(4); await tell(tok, '最後選貼紙。拿好你的烏克麗麗，開始囉！');
+    const segs = [segWarm, segBeat, segSkill];
     for (let i = 0; i < segs.length; i++) {
       mark(i); tok.skip = false; setRounds(0, 0);
-      try { await segs[i](tok, k, counts[i]); } catch (e) { if (e !== SKIP) throw e; hush(); if (MIC) MIC.mutes = []; }
+      try { await segs[i](tok, k, counts[i]); } catch (e) { if (e !== SKIP) throw e; hush(); if (MIC) MIC.mutes = []; LISTEN = 0; }
     }
-    /* 加分關：前四段做完還有時間，才進 Do Re Mi */
-    tok.skip = false; tok.bonus = 0;
-    if (budget - (performance.now() - t0) > 60000) {
-      mark(4);
-      try { await segSolfa(tok, k, () => performance.now() - t0 >= budget); } catch (e) { if (e !== SKIP) throw e; hush(); }
+    /* 前三段做完還有時間，才唱唱彈彈；一直唱到時間用完 */
+    tok.skip = false; tok.sang = 0; setRounds(0, 0);
+    if (budget - (performance.now() - t0) > 30000) {
+      mark(3);
+      try { await segSong(tok, k, () => performance.now() - t0 >= budget); } catch (e) { if (e !== SKIP) throw e; hush(); if (MIC) MIC.mutes = []; LISTEN = 0; }
     }
-    mark(5); tok.skip = false; setRounds(0, 0);
+    mark(4); tok.skip = false; setRounds(0, 0);
     k.n++; save();
     await segSticker(tok, k);
     if (tok.alive) go('kid', kidId);
@@ -347,18 +388,20 @@ async function startSession(kidId) {
 async function strumCount(tok, n, html) {
   show(`${html}<div class="dots">${Array.from({ length: n }, (_, i) => `<div class="dot" id="d${i}"></div>`).join('')}</div>${YES}`);
   let got = 0, tapped = false; document.getElementById('yes').onclick = () => { tapped = true; };
-  if (MIC) MIC.hits.length = 0; deaf(300);
-  await until(tok, () => {
-    if (tapped) return true;
-    if (MIC) while (got < n && MIC.hits.length > got) { const d = document.getElementById('d' + got); if (d) { d.classList.add('on'); d.textContent = '🎵'; } tone(660 + got * 60, audio().currentTime, .15, .1); got++; }
-    return got >= n;
-  }, 20000);
+  if (MIC) MIC.hits.length = 0; deaf(300); LISTEN++;
+  try {
+    await until(tok, () => {
+      if (tapped) return true;
+      if (MIC) while (got < n && MIC.hits.length > got) { const d = document.getElementById('d' + got); if (d) { d.classList.add('on'); d.textContent = '🎵'; } judge(true); tone(660 + got * 60, audio().currentTime, .15, .1); got++; }
+      return got >= n;
+    }, 20000);
+  } finally { LISTEN--; }
   ding(); await sleep(tok, 700);
 }
 const sName = i => `${STRINGS[i].cname}的${STRINGS[i].aname}弦`;
-/* 找弦：count 題；blind＝不給顏色，只聽聲音 */
+/* 找弦：count 題；blind＝不給顏色，只聽聲音。回傳是否全部答對 */
 async function findStrings(tok, count, blind) {
-  let last = -1;
+  let last = -1, good = 0;
   for (let n = 0; n < count; n++) {
     let i; do { i = Math.floor(Math.random() * 4); } while (i === last); last = i;
     const st = STRINGS[i];
@@ -367,23 +410,25 @@ async function findStrings(tok, count, blind) {
     let got = null;
     for (let t = 0; t < 2 && !got; t++) { pluck(st.hz); deaf(950); got = await hearNote(tok, st.hz, 7000); if (!got && t === 0) await tell(tok, '再聽一次'); }
     show(`<div class="mid2 pop">${got ? '🎉' : st.animal}</div>${neckSVG({ hi: i, frets: 2 })}`);
-    if (got) ding(); else await tell(tok, `是${st.aname}弦`);
+    if (got) { good++; ding(); } else await tell(tok, `是${st.aname}弦`);
     await sleep(tok, 800);
   }
+  return good === count;
 }
-/* 回聲：App 先撥幾條弦，小朋友照順序撥 */
+/* 回聲：App 先撥幾條弦，小朋友照順序撥。回傳是否全部答對 */
 async function echoStrings(tok, len, order) {
-  const seq = order || Array.from({ length: len }, () => 0).map((_, j, a) => { let i; do { i = Math.floor(Math.random() * 4); } while (j > 0 && i === a[j - 1]); a[j] = i; return i; });
+  const seq = order || []; if (!order) for (let j = 0; j < len; j++) { let i; do { i = Math.floor(Math.random() * 4); } while (j > 0 && i === seq[j - 1]); seq.push(i); }
   const row = on => `<div class="seq">${seq.map((s, j) => `<span class="${j < on ? 'done' : j === on ? 'now' : ''}">${STRINGS[s].animal}</span>`).join('')}</div>`;
   show(`${big('👂')}${row(-1)}`); await tell(tok, '先聽我彈。');
-  deaf(seq.length * 800 + 900);
+  deaf(seq.length * 800 + 600);
   for (let j = 0; j < seq.length; j++) { show(`${row(j)}${neckSVG({ hi: seq[j], frets: 2 })}`); pluck(STRINGS[seq[j]].hz); await sleep(tok, 800); }
   await sleep(tok, 500); await tell(tok, '換你！');
   const good = await hearSeq(tok, seq.map(s => STRINGS[s].hz), j => { if (j < seq.length) show(`${row(j)}${neckSVG({ hi: seq[j], frets: 2 })}${YES}`); });
   show(`${big(good === seq.length ? '🎉' : '👍')}${row(seq.length)}`); ding(); await sleep(tok, 900);
+  return good === seq.length;
 }
 
-/* ---------- 1. 暖身：三種輪流 ---------- */
+/* ---------- 1. 暖身：三種輪流，難度自己慢慢往上 ---------- */
 const HAND_GAMES = [
   { say: '數手指！一、二、三、四、五！', frames: ['☝️', '✌️', '🤟', '🖖', '🖐'], ms: 900, reps: 2 },
   { say: '握緊拳頭，再用力張開！握緊，張開！', frames: ['✊', '🖐'], ms: 1000, reps: 4 },
@@ -391,21 +436,24 @@ const HAND_GAMES = [
   { say: '大拇指碰碰每一根手指：食指、中指、無名指、小指！', frames: ['👌', '🤏', '🤌', '👌'], ms: 1100, reps: 2 },
   { say: '手指在腿上彈鋼琴，叮叮咚咚！', frames: ['🎹', '🖐', '🎹', '🤚'], ms: 600, reps: 4 },
 ];
+const WARM_NAMES = ['看顏色找弦、回聲 2 個音', '最後一回只聽聲音、回聲 3 個音', '全部只聽聲音、回聲 3 個音', '只聽聲音、回聲 4 個音'];
 async function handGame(tok, g) {
   show(big(g.frames[0], 'el')); say(g.say); await sleep(tok, 600);
   for (let r = 0; r < g.reps; r++) for (const f of g.frames) { const e = document.getElementById('el'); if (e) e.textContent = f; bounce(); await sleep(tok, g.ms); }
   await until(tok, () => !speaking, 4000);
 }
 async function segWarm(tok, k, n) {
-  let kind = k.n % 3; if (k.level === 1 && kind === 1) kind = 2; /* 彩虹島的本領已經在找弦，暖身就換別的 */
-  if (k.level === 0 && kind !== 0) kind = 0;                      /* 出發島還沒學弦，只做手指操 */
-  const start = k.n % HAND_GAMES.length;
-  if (kind === 0) { await tell(tok, '先讓手指暖身！'); await runRounds(tok, n, i => handGame(tok, HAND_GAMES[(start + i) % HAND_GAMES.length])); }
-  else if (kind === 1) { await handGame(tok, HAND_GAMES[start]); await tell(tok, '找找看，是哪一條弦？聽到聲音，就撥那一條！'); await runRounds(tok, n, i => findStrings(tok, 2, k.level >= 2 && i === n - 1)); }
-  else { await handGame(tok, HAND_GAMES[start]); await tell(tok, '回聲遊戲！我彈什麼，你就彈什麼。'); await runRounds(tok, n, i => echoStrings(tok, k.level >= 2 && i > 0 ? 3 : 2)); }
+  const kind = k.n % 3, w = k.warm.lv, start = k.n % HAND_GAMES.length; let all = true;
+  if (kind === 0) { await tell(tok, '先讓手指暖身！'); await runRounds(tok, Math.max(2, n), i => handGame(tok, HAND_GAMES[(start + i) % HAND_GAMES.length])); return; }
+  await handGame(tok, HAND_GAMES[start]);
+  if (kind === 1) { await tell(tok, '找找看，是哪一條弦？聽到聲音，就撥那一條！'); await runRounds(tok, n, async (i, m) => { if (!await findStrings(tok, w >= 3 ? 3 : 2, w >= 2 || (w >= 1 && i === m - 1))) all = false; }); }
+  else { await tell(tok, '回聲遊戲！我彈什麼，你就彈什麼。'); await runRounds(tok, n, async () => { if (!await echoStrings(tok, 2 + (w >= 1) + (w >= 3))) all = false; }); }
+  /* 全部答對累積兩次，暖身就升一級 */
+  if (all) { k.warm.ok++; if (k.warm.ok >= 2 && w < 3) { k.warm.lv++; k.warm.ok = 0; show(`${big('🖐')}<div class="stars3">🎉</div>`); ding([523, 659, 784, 1047, 1319]); await tell(tok, '暖身升級了！下次會難一點點喔！'); } }
+  save();
 }
 
-/* ---------- 2. 節奏：六個階梯 ---------- */
+/* ---------- 2. 節奏：六個階梯，自動升級 ---------- */
 /* on：一小節（4 拍）裡要彈的位置；echo＝App 先拍、小朋友照著拍 */
 const RHYTHMS = [
   { name: '大象拍（慢）', icon: '🐘', bpm: 60, pats: [[0, 1, 2, 3]], say: '大象跳一下，你就一下。' },
@@ -417,11 +465,12 @@ const RHYTHMS = [
 ];
 function clap(t) { try { const ac = audio(), N = Math.floor(ac.sampleRate * .05), b = ac.createBuffer(1, N, ac.sampleRate), d = b.getChannelData(0); for (let i = 0; i < N; i++) d[i] = (Math.random() * 2 - 1) * Math.exp(-i / (N / 5)); const s = ac.createBufferSource(), g = ac.createGain(); s.buffer = b; g.gain.value = .5; s.connect(g).connect(ac.destination); s.start(t); } catch (e) {} }
 const patStrip = (on, icon) => `<div class="strip">${on.some(x => x % 1) ? [0, 1, 2, 3].map(() => `<span>${icon}${icon}</span>`).join('') : [0, 1, 2, 3].map(b => `<span>${on.includes(b) ? icon === '🙊' || icon === '👂' ? '🐘' : icon : icon === '🐢' ? '➖' : '🙊'}</span>`).join('')}</div>`;
-/* 回傳 1–3 顆星。o：{bpm, on, icon, echo, bars, action} */
+/* 回傳 1–3 顆星。o：{bpm, on, icon, echo, bars, action, cards}；cards＝每一小節要按的和弦，會顯示圖卡 */
 async function beatRound(tok, o) {
   const bpm = o.bpm || 66, spb = 60 / bpm, ac = audio(), on = o.on || [0, 1, 2, 3];
-  const bars = o.echo ? ['app', 'kid', 'app', 'kid'] : Array(o.bars || 2).fill('kid'), beats = bars.length * 4;
-  show(`<div class="mid2" id="el">${o.icon || '🐘'}</div>${patStrip(on, o.icon || '🐘')}<div class="count" id="cnt"></div><div class="beats" id="bt">${bars.map(w => [0, 1, 2, 3].map(() => `<i class="${w === 'app' ? 'app' : ''}"></i>`).join('')).join('')}</div>${o.action ? `<div class="mid2">${o.action}</div>` : ''}`);
+  const bars = o.echo ? ['app', 'kid', 'app', 'kid'] : Array(o.cards ? o.cards.length : o.bars || 2).fill('kid'), beats = bars.length * 4;
+  const top = o.cards ? `<div id="bc">${chordCard(CHORDS[o.cards[0]], false, 3)}</div>` : `<div class="mid2" id="el">${o.icon || '🐘'}</div>${patStrip(on, o.icon || '🐘')}`;
+  show(`${top}<div class="count" id="cnt"></div><div class="beats" id="bt">${bars.map(w => [0, 1, 2, 3].map(() => `<i class="${w === 'app' ? 'app' : ''}"></i>`).join('')).join('')}</div>${o.action && !o.cards ? `<div class="mid2">${o.action}</div>` : ''}`);
   const t0 = ac.currentTime + .35, p0 = performance.now() + 350, want = [];
   for (let i = 0; i < 4; i++) click(t0 + i * spb, true);
   for (let i = 0; i < beats; i++) click(t0 + (4 + i) * spb, false);
@@ -432,26 +481,31 @@ async function beatRound(tok, o) {
   }));
   /* 節拍聲和示範聲會從喇叭傳進麥克風，所以每一聲前後短暫不聽 */
   if (MIC) { MIC.gate = 0; MIC.mutes = mutes.sort((a, b) => a[0] - b[0]); }
-  for (let i = 0; i < 4; i++) { await sleep(tok, p0 + i * spb * 1000 - performance.now()); const c = document.getElementById('cnt'); if (c) c.textContent = i + 1; }
-  await sleep(tok, p0 + 3.5 * spb * 1000 - performance.now());
-  if (MIC) MIC.hits.length = 0;
-  const dots = document.getElementById('bt').children;
-  for (let i = 0; i < beats; i++) {
-    await sleep(tok, p0 + (4 + i) * spb * 1000 - performance.now());
-    const c = document.getElementById('cnt'); if (c) c.textContent = '';
-    const who = bars[Math.floor(i / 4)], e = document.getElementById('el');
-    if (e && o.echo) e.textContent = who === 'app' ? '👂' : '👏';
-    else if (e) e.textContent = on.includes(i % 4) || on.some(x => x % 1) ? (o.icon === '🙊' ? '🐘' : o.icon || '🐘') : o.icon === '🐢' ? '➖' : '🙊';
-    bounce(); if (dots[i]) dots[i].classList.add('on');
-  }
-  await sleep(tok, spb * 700);
+  const gap = on.length > 1 ? Math.min(...on.slice(1).map((x, j) => x - on[j])) : 4, win = Math.min(320, gap * spb * 1000 * .42);
+  const inTime = h => want.some(w => Math.abs(h - (w + 50)) < win);
+  /* 每聽到一下，就在收音指示顯示有沒有對上拍子 */
+  let seen = MIC ? MIC.nHits : 0;
+  const watch = setInterval(() => { if (MIC && MIC.nHits > seen) { seen = MIC.nHits; const h = MIC.hits[MIC.hits.length - 1]; if (h > p0 + 3.5 * spb * 1000) judge(inTime(h)); } }, 50);
+  try {
+    for (let i = 0; i < 4; i++) { await sleep(tok, p0 + i * spb * 1000 - performance.now()); const c = document.getElementById('cnt'); if (c) c.textContent = i + 1; }
+    await sleep(tok, p0 + 3.5 * spb * 1000 - performance.now());
+    if (MIC) MIC.hits.length = 0; LISTEN++;
+    const dots = document.getElementById('bt').children;
+    for (let i = 0; i < beats; i++) {
+      await sleep(tok, p0 + (4 + i) * spb * 1000 - performance.now());
+      const c = document.getElementById('cnt'); if (c) c.textContent = '';
+      const bi = Math.floor(i / 4), e = document.getElementById('el');
+      if (e && o.echo) e.textContent = bars[bi] === 'app' ? '👂' : '👏';
+      else if (e) e.textContent = on.includes(i % 4) || on.some(x => x % 1) ? (o.icon === '🙊' ? '🐘' : o.icon || '🐘') : o.icon === '🐢' ? '➖' : '🙊';
+      /* 換和弦：在上一小節的最後一拍就先換圖卡，讓小朋友來得及準備 */
+      if (o.cards && i % 4 === 3 && bi + 1 < bars.length && o.cards[bi + 1] !== o.cards[bi]) { const bc = document.getElementById('bc'); if (bc) { bc.innerHTML = chordCard(CHORDS[o.cards[bi + 1]], false, 3); bc.classList.remove('pop'); void bc.offsetWidth; bc.classList.add('pop'); } }
+      bounce(o.cards ? 'bc' : 'el'); if (dots[i]) dots[i].classList.add('on');
+    }
+    await sleep(tok, spb * 700);
+  } finally { clearInterval(watch); LISTEN = Math.max(0, LISTEN - 1); }
   let hit = 0;
-  if (MIC) {
-    /* 5 歲小朋友的標準放寬：前後約 0.3 秒內都算跟上，跟上一半就是三顆星 */
-    const gap = on.length > 1 ? Math.min(...on.slice(1).map((x, j) => x - on[j])) : 4, win = Math.min(320, gap * spb * 1000 * .42);
-    want.forEach(w => { if (MIC.hits.some(h => Math.abs(h - (w + 50)) < win)) hit++; });
-    MIC.mutes = [];
-  }
+  /* 5 歲小朋友的標準放寬：前後約 0.3 秒內都算跟上，跟上一半就是三顆星 */
+  if (MIC) { want.forEach(w => { if (MIC.hits.some(h => Math.abs(h - (w + 50)) < win)) hit++; }); MIC.mutes = []; }
   const stars = !MIC ? 3 : hit >= want.length * .5 ? 3 : hit >= want.length * .25 ? 2 : 1;
   show(`${big(o.icon || '🐘')}<div class="stars3 pop">${'⭐'.repeat(stars)}</div>`);
   ding(stars === 3 ? [523, 659, 784, 1047] : [659, 784]);
@@ -468,9 +522,9 @@ async function segBeat(tok, k, n) {
   const top = k.rhythm.lv; let ups = 0;
   await tell(tok, '節奏時間！聽到四聲之後才開始喔。');
   await runRounds(tok, n, async i => {
-    /* 大多練目前的階梯，偶爾回頭玩舊的；大象島的本領是刷琴，所以這裡只拍手 */
+    /* 大多練目前的階梯，偶爾回頭玩舊的；拍手和刷琴輪流 */
     const lvIdx = top > 0 && i > 0 && (i === n - 1 || Math.random() < .3) ? Math.floor(Math.random() * top) : top;
-    const stars = await rhythmRound(tok, k, lvIdx, k.level !== 2 && k.level > 0 && i % 2 === 1);
+    const stars = await rhythmRound(tok, k, lvIdx, i % 2 === 1);
     if (lvIdx === top && stars === 3 && ups < 2) { ups++; k.rhythm.streak++; }
   });
   if (k.rhythm.streak >= 4 && k.rhythm.lv < RHYTHMS.length - 1) {
@@ -480,143 +534,28 @@ async function segBeat(tok, k, n) {
   save();
 }
 
-/* ---------- 3. 今天的本領：每座島分「學、練、挑戰」 ---------- */
-const UKE_PIC = '<svg class="neck" viewBox="0 0 120 260"><rect x="42" y="4" width="36" height="40" rx="8" fill="#5c3616"/><rect x="50" y="40" width="20" height="100" fill="#7a4a21"/><ellipse cx="60" cy="160" rx="40" ry="34" fill="#e08a3c"/><ellipse cx="60" cy="208" rx="52" ry="44" fill="#e08a3c"/><circle cx="60" cy="176" r="15" fill="#5c3616"/><rect x="40" y="222" width="40" height="9" rx="3" fill="#5c3616"/><g stroke-width="2.4">' + STRINGS.map((s, i) => `<line x1="${53 + i * 4.7}" y1="10" x2="${48 + i * 8}" y2="226" stroke="${s.color}"/>`).join('') + '</g></svg>';
-const C_CARD = hide => `<div class="mid2">☀️</div>${hide ? '<div class="huge">🙈</div>' : neckSVG({ dots: [[3, 3]] })}`;
-const T = {
-  tap: (html, voice, label) => async tok => { say(voice); await tapNext(tok, html, label, 40000); },
-  strum: (n, voice, icon) => async tok => { await tell(tok, voice); await strumCount(tok, n, big(icon || '🎸')); },
-  meet: i => async tok => {
-    const st = STRINGS[i];
-    show(`<div class="mid2">${st.animal}</div>${neckSVG({ hi: i, frets: 2 })}${YES}`);
-    await tell(tok, `這是${sName(i)}。`); pluck(st.hz); deaf(950); await sleep(tok, 1400);
-    await tell(tok, '換你撥撥看！'); if (await hearNote(tok, st.hz, 9000)) { ding(); await sleep(tok, 600); }
-  },
-  find: (n, blind) => async tok => { if (blind) await tell(tok, '這次不給你看顏色，只用耳朵聽喔！'); await findStrings(tok, n, blind); },
-  echo: (len, order) => async tok => { if (order) await tell(tok, order[0] === 0 ? '上樓梯！從上面一條一條往下撥。' : '下樓梯！從下面一條一條往上撥。'); await echoStrings(tok, len, order); },
-  beat: (o, voice) => async tok => { if (voice) await tell(tok, voice); await beatRound(tok, Object.assign({ action: '🎸' }, o)); },
-  cPress: hide => async tok => {
-    show(C_CARD(hide) + YES); await tell(tok, hide ? '不看圖卡，按好太陽和弦，撥一下紅色螃蟹弦。' : '按好太陽和弦，撥一下紅色螃蟹弦，聽聽看。');
-    if (await hearNote(tok, 523.25, 9000)) { ding(); await sleep(tok, 500); } else { show(C_CARD()); await tell(tok, '無名指按在紅色螃蟹弦的第三格，再用力一點。'); }
-  },
-  cOnOff: times => async tok => {
-    await tell(tok, '按下去，放開，按下去，放開。看圖案：太陽就按，彩虹就放開。');
-    for (let i = 0; i < times * 2; i++) {
-      const press = i % 2 === 0;
-      show(`<div class="mid2">${press ? '☀️' : '🌈'}</div>${neckSVG({ dots: press ? [[3, 3]] : [] })}${YES}`);
-      if (await hearNote(tok, press ? 523.25 : 440, 7000)) { tone(1319, audio().currentTime, .18, .12); deaf(250); await sleep(tok, 350); }
-    }
-    ding();
-  },
-  cBeat: (bpm, bars) => async tok => { show(C_CARD()); await tell(tok, '按好太陽和弦，跟著拍子刷。'); await beatRound(tok, { bpm, icon: '☀️', bars: bars || 1, action: '🎸' }); },
-};
-/* 每座島三個階段，每個階段是一串「回」；回數不夠長時從頭輪 */
-const ISLANDS = [
-  /* 0 出發島 */
-  [
-    [T.tap(UKE_PIC, '這是你的烏克麗麗。上面是琴頭，中間是長長的琴頸，下面是圓圓的琴身。'), T.tap(big('🤗'), '坐好，把琴抱在胸前，像抱小寶寶一樣。用右手的手臂，輕輕夾住琴身。', '抱好了'), T.tap(big('🤚'), '左手輕輕扶著琴頸，大拇指躲在後面。', '扶好了'), T.strum(4, '用右手的大拇指，從上往下，輕輕刷。刷四下！', '👍'), T.strum(4, '再刷四下，聽聽看好不好聽。')],
-    [T.strum(2, '輕輕的刷兩下，像小貓走路一樣小聲。', '🤫'), T.strum(4, '這次刷大聲一點，刷四下！', '📣'), T.tap(big('🤗'), '檢查一下：琴有沒有抱好？手臂有沒有夾住琴身？', '抱好了'), T.strum(6, '連續刷六下，不要停！'), T.strum(4, '慢慢的刷，慢到可以聽見每一條弦的聲音。刷四下。', '🐌')],
-    [T.tap(big('🙌'), '把琴放在腿上，手舉高。聽到我說好，再自己把琴抱好。好！', '抱好了'), T.strum(8, '一口氣刷八下！'), T.beat({ bpm: 60, bars: 1 }, '跟著大象，一拍刷一下。'), T.strum(4, '兩下小聲，兩下大聲。', '🎚️'), T.strum(4, '最後四下，刷得最好聽！', '🌟')],
-  ],
-  /* 1 彩虹島 */
-  [
-    [T.meet(0), T.meet(1), T.meet(2), T.meet(3), T.find(3)],
-    [T.find(3), T.echo(2), T.echo(4, [0, 1, 2, 3]), T.find(3), T.echo(2)],
-    [T.find(3, true), T.echo(3), T.echo(4, [3, 2, 1, 0]), T.find(3, true), T.echo(3)],
-  ],
-  /* 2 大象島 */
-  [
-    [T.strum(4, '大象走路，一步，一步，慢慢走。先自己從上往下刷四下。', '🐘'), T.beat({ bpm: 60 }, '現在跟著大象，大象跳一下，你就刷一下。'), T.beat({ bpm: 60 }), T.beat({ bpm: 60, bars: 3 }, '這次比較長，要撐住喔！'), T.beat({ bpm: 60 })],
-    [T.beat({ bpm: 60 }), T.beat({ bpm: 72 }, '大象走快一點！'), T.beat({ bpm: 66, on: [0, 1, 2], icon: '🙊' }, '第四拍小猴子摀嘴巴，要停一下。'), T.beat({ bpm: 72 }), T.beat({ bpm: 60, bars: 3 }, '這次比較長，要撐住喔！')],
-    [T.beat({ bpm: 84 }, '大象用跑的！'), T.beat({ bpm: 66, on: [0, 2, 3], icon: '🙊' }, '這次是第二拍要停。'), T.beat({ bpm: 66, on: [0, 2], icon: '🐢' }, '烏龜拍，兩拍才刷一下。'), T.beat({ bpm: 72, bars: 4 }, '最長的一次，加油！'), T.beat({ bpm: 84 })],
-  ],
-  /* 3 太陽島：C 和弦 */
-  [
-    [async tok => { await tell(tok, '今天學太陽和弦。聽聽看它的聲音。'); strum(CHORD_C); await sleep(tok, 1600); say('用無名指，按住紅色螃蟹弦的第三格。按在格子裡面，靠近下面那條線。'); await tapNext(tok, C_CARD(), '按好了', 40000); }, T.cPress(), T.cPress(), T.cBeat(60, 1), async tok => { show(big('👋')); await tell(tok, '手放開，甩一甩。'); await T.cPress()(tok); }],
-    [T.cOnOff(2), T.cBeat(60, 1), T.cOnOff(3), T.cBeat(60, 2), T.cPress()],
-    [T.cPress(true), T.cOnOff(3), T.cBeat(72, 2), T.cPress(true), T.cBeat(84, 2)],
-  ],
-];
-const STAGE_NAMES = ['學', '練', '挑戰'];
-async function segSkill(tok, k, n) {
-  const lv = LEVELS[k.level], st = Math.min(2, k.stage[k.level] || 0), list = ISLANDS[k.level][st];
-  show(`${big(lv.icon)}`); ding([659, 784, 988]); await tell(tok, `今天的本領：${lv.say}！`);
-  const review = k.n % 3 === 2 && k.level > 0; /* 每三次有一次，最後一回回頭複習舊小島 */
-  await runRounds(tok, n, async i => {
-    if (review && i === n - 1 && n > 1) { const old = Math.floor(Math.random() * k.level); show(big(LEVELS[old].icon)); await tell(tok, `回去${LEVELS[old].name}玩一下！`); return pick(ISLANDS[old][1])(tok); }
-    return list[(i + (i >= list.length ? k.n : 0)) % list.length](tok);
-  });
-}
-
-/* ---------- 4. 唱唱彈彈 ---------- */
-/* [MIDI 音高, 拍數]。三首都只用 C 和弦，所以空弦或太陽和弦都能伴奏 */
-const SONGS = [
-  { id: 'open', name: '彩虹小曲', bpm: 76, icon: '🌈', notes: [[64, 1], [64, 1], [67, 1], [67, 1], [69, 1], [69, 1], [67, 2], [64, 1], [64, 1], [62, 1], [62, 1], [60, 4], [67, 1], [67, 1], [69, 1], [69, 1], [72, 1], [69, 1], [67, 2], [64, 1], [67, 1], [64, 1], [62, 1], [60, 4]] },
-  { id: 'tigers', name: '兩隻老虎', bpm: 84, icon: '🐯', lyric: '兩隻老虎，兩隻老虎，跑得快，跑得快。一隻沒有耳朵，一隻沒有尾巴，真奇怪，真奇怪。',
-    notes: [[60, 1], [62, 1], [64, 1], [60, 1], [60, 1], [62, 1], [64, 1], [60, 1], [64, 1], [65, 1], [67, 2], [64, 1], [65, 1], [67, 2], [67, .5], [69, .5], [67, .5], [65, .5], [64, 1], [60, 1], [67, .5], [69, .5], [67, .5], [65, .5], [64, 1], [60, 1], [60, 1], [55, 1], [60, 2], [60, 1], [55, 1], [60, 2]] },
-  { id: 'row', name: '划船歌', bpm: 66, icon: '🚣', lyric: '划、划、划小船，輕輕順水流。快樂地、快樂地、快樂地、快樂地，人生像場夢。',
-    notes: [[60, 1], [60, 1], [60, 2 / 3], [62, 1 / 3], [64, 1], [64, 2 / 3], [62, 1 / 3], [64, 2 / 3], [65, 1 / 3], [67, 2], [72, 1 / 3], [72, 1 / 3], [72, 1 / 3], [67, 1 / 3], [67, 1 / 3], [67, 1 / 3], [64, 1 / 3], [64, 1 / 3], [64, 1 / 3], [60, 1 / 3], [60, 1 / 3], [60, 1 / 3], [67, 2 / 3], [65, 1 / 3], [64, 2 / 3], [62, 1 / 3], [60, 2]] },
-];
-const SONG_MODES = [
-  { id: 'follow', icon: '🎵', say: '圖案跳一下，你就刷一下。可以一起唱喔！' },
-  { id: 'freeze', icon: '🛑', say: '木頭人遊戲！音樂停下來，看到紅色的牌子，手就要停住不能動！' },
-  { id: 'solo', icon: '🎤', say: '換你當主角！後面音樂會變小聲，你要自己繼續刷，不要停。' },
-  { id: 'fast', icon: '🚀', say: '這次會比較快，跟好喔！' },
-];
-const midiHz = m => 440 * Math.pow(2, (m - 69) / 12);
-async function playSong(tok, song, mode, k) {
-  const bpm = song.bpm * (mode.id === 'fast' ? 1.18 : 1), spb = 60 / bpm, ac = audio();
-  const chord = k.level >= 3 ? CHORD_C : OPEN, total = Math.round(song.notes.reduce((s, n) => s + n[1], 0));
-  const card = k.level >= 3 ? neckSVG({ dots: [[3, 3]], frets: 3 }) : neckSVG({ frets: 2 });
-  show(`<div class="mid2" id="el">${song.icon}</div><div class="count" id="cnt"></div>${card}${song.lyric ? `<p class="hint">${song.lyric}</p>` : ''}`);
-  /* 木頭人：在樂句之間插入兩拍的停頓 */
-  const stops = mode.id === 'freeze' ? [8, 16, 24].filter(b => b < total).sort(() => Math.random() - .5).slice(0, 2) : [];
-  const shift = b => b + stops.filter(s => s <= b).length * 2, t0 = ac.currentTime + .35, p0 = performance.now() + 350;
-  for (let i = 0; i < 4; i++) click(t0 + i * spb, true);
-  let b = 0; for (const [m, len] of song.notes) { const quiet = mode.id === 'solo' && b >= total / 2; tone(midiHz(m), t0 + (4 + shift(b)) * spb, len * spb * .95, quiet ? .03 : .2, 'triangle'); b += len; }
-  const plan = []; for (let i = 0; i < total; i++) { plan[shift(i)] = 'beat'; strum(chord, t0 + (4 + shift(i)) * spb, mode.id === 'solo' && i >= total / 2 ? .03 : .1); }
-  const len = total + stops.length * 2;
-  for (let i = 0; i < 4 + len; i++) {
-    await sleep(tok, p0 + i * spb * 1000 - performance.now());
-    const c = document.getElementById('cnt'), e = document.getElementById('el');
-    if (c) c.textContent = i < 4 ? i + 1 : '';
-    if (i >= 4 && e) { const stop = plan[i - 4] !== 'beat'; e.textContent = stop ? '🛑' : mode.id === 'solo' && i - 4 >= total / 2 ? '🎤' : song.icon; if (!stop) bounce(); }
-  }
-  await sleep(tok, spb * 1200);
-}
-async function segSong(tok, k, n) {
-  await tell(tok, k.level >= 3 ? '唱歌時間！今天用太陽和弦來伴奏。' : '唱歌時間！不用按弦，直接刷就可以。');
-  await runRounds(tok, n, async i => {
-    let song = null;
-    show(`<div class="choice">${SONGS.map((s, j) => `<button data-s="${j}"><span>${s.icon}</span></button>`).join('')}</div>`);
-    stage().querySelectorAll('[data-s]').forEach(b => b.onclick = () => { song = SONGS[+b.dataset.s]; ding(); });
-    say('想唱哪一首？選一個！');
-    if (!await until(tok, () => song, 20000)) song = SONGS[(k.n + i) % SONGS.length];
-    const mode = SONG_MODES[(k.n + i) % SONG_MODES.length];
-    show(`${big(song.icon)}<div class="mid2">${mode.icon}</div>`); await tell(tok, `${song.name}。${mode.say}`);
-    await playSong(tok, song, mode, k); ding([523, 659, 784]);
-    show(`${big(song.icon)}<div class="stars3 pop">👏👏👏</div>`); await sleep(tok, 1200);
-  });
-}
-
-/* ---------- 加分關：Do Re Mi（老師貼的數字 1–6） ---------- */
+/* ---------- 數字 Do Re Mi（老師貼的貼紙） ---------- */
 const SOLFA = ['', '兜', '瑞', '咪', '發', '搜', '啦'], NUM_ZH = ['', '一', '二', '三', '四', '五', '六'];
 const noteHz = n => { const [s, f] = DB.settings.notes[n]; return STRINGS[s].hz * Math.pow(2, f / 12); };
 const numBadge = (n, cls) => { const st = STRINGS[DB.settings.notes[n][0]]; return `<span class="num ${cls || ''}" style="background:${st.color};color:${st.ink}">${n}</span>`; };
-const SOLFA_STEPS = [
-  { name: '認識數字', sets: [[1, 2, 3], [3, 4, 5], [1, 3, 6], [4, 5, 6], [2, 4, 6], [1, 5, 6]] },
-  { name: '爬樓梯', sets: [[1, 2, 3], [3, 2, 1], [1, 2, 3, 4, 5], [5, 4, 3, 2, 1], [1, 2, 3, 4, 5, 6], [6, 5, 4, 3, 2, 1]] },
-  { name: '聽音猜數字', sets: [[1, 3], [3, 5], [1, 6], [2, 4], [5, 6], [1, 2, 3]] },
-  { name: '小旋律', sets: [[1, 1, 5, 5, 6, 6, 5], [4, 4, 3, 3, 2, 2, 1], [3, 2, 1, 2, 3, 3, 3], [5, 3, 3, 4, 2, 2], [1, 2, 3, 4, 5, 5, 5], [1, 2, 3, 1, 1, 2, 3, 1]] },
+const maxNum = () => DB.settings.maxNum;
+const upTo = sets => sets.filter(s => Math.max(...s) <= maxNum());
+/* 四種玩法各自的題目；只會出現老師已經教過的數字 */
+const NUM_SETS = [
+  [[1, 2], [3, 4], [1, 3], [2, 4], [1, 2, 3, 4], [3, 4, 5], [1, 5], [4, 5, 6], [1, 6]],
+  [[1, 2, 3], [3, 2, 1], [1, 2, 3, 4], [4, 3, 2, 1], [1, 3, 2, 4], [1, 2, 3, 4, 5], [5, 4, 3, 2, 1], [1, 2, 3, 4, 5, 6], [6, 5, 4, 3, 2, 1]],
+  [[1, 3], [2, 4], [1, 4], [1, 2, 3], [3, 5], [1, 5], [1, 6], [5, 6]],
+  [[3, 2, 1, 2, 3, 3, 3], [3, 2, 1, 3, 2, 1], [1, 2, 3, 1, 1, 2, 3, 1], [1, 1, 2, 2, 3, 3, 4], [4, 3, 2, 1, 2, 3, 4], [5, 3, 3, 4, 2, 2], [1, 2, 3, 4, 5, 5, 5], [1, 1, 5, 5, 6, 6, 5], [4, 4, 3, 3, 2, 2, 1]],
 ];
-async function solfaRound(tok, k, step, nums) {
+const NUM_PLAY = ['認識數字', '爬樓梯', '聽音猜數字', '小旋律'];
+async function solfaRound(tok, step, nums) {
   const row = on => `<div class="seq">${nums.map((n, j) => numBadge(n, j < on ? 'done' : j === on ? 'now' : '')).join('')}</div>`;
   const neck = n => neckSVG({ stickers: true, hiNum: n, frets: 3 });
   if (step === 0) { /* 一個一個認識 */
     let good = 0;
     for (const n of nums) {
       show(`<div class="seq">${numBadge(n, 'now big')}</div>${neck(n)}${YES}`);
-      await tell(tok, `${NUM_ZH[n]}，${SOLFA[n]}。`); pluck(noteHz(n)); deaf(950); await sleep(tok, 1300);
+      await tell(tok, `${NUM_ZH[n]}，${SOLFA[n]}。`); pluck(noteHz(n)); deaf(950); await sleep(tok, 1100);
       await tell(tok, '找到這個數字的貼紙，撥撥看！');
       if (await hearNote(tok, noteHz(n), 9000)) { good++; ding(); await sleep(tok, 600); }
     }
@@ -635,24 +574,190 @@ async function solfaRound(tok, k, step, nums) {
   }
   /* 爬樓梯、小旋律：先聽一次，再照著彈 */
   show(`${big('👂')}${row(-1)}`); await tell(tok, step === 1 ? '先聽我彈，一個一個照順序。' : '先聽我彈這一句。');
-  deaf(nums.length * 650 + 900);
+  deaf(nums.length * 650 + 600);
   for (let j = 0; j < nums.length; j++) { show(`${row(j)}${neck(nums[j])}`); pluck(noteHz(nums[j])); await sleep(tok, 650); }
   await sleep(tok, 500); await tell(tok, '換你！');
   const good = await hearSeq(tok, nums.map(noteHz), j => { if (j < nums.length) show(`${row(j)}${neck(nums[j])}${YES}`); });
   show(`${big(good === nums.length ? '🎉' : '👍')}${row(nums.length)}`); ding(); await sleep(tok, 900);
   return good === nums.length;
 }
-async function segSolfa(tok, k, timeIsUp) {
-  show(big('🔢')); ding([659, 784, 988, 1175]);
-  await tell(tok, '你做得很快，還有時間！來玩加分關，數字 Do Re Mi！');
-  const maxR = 8; let i = 0;
-  while (i < maxR && !(i > 0 && timeIsUp())) {
-    setRounds(Math.max(i + 1, 3), i);
-    const step = Math.min(3, k.solfa.step), sets = SOLFA_STEPS[step].sets;
-    const ok = await solfaRound(tok, k, step, sets[(k.solfa.ok + i) % sets.length]);
-    if (ok) k.solfa.ok++;
-    if (k.solfa.ok >= 6 && k.solfa.step < 3) { k.solfa.step++; k.solfa.ok = 0; show(`${big('🔢')}<div class="stars3">🎉</div>`); ding([523, 659, 784, 1047, 1319]); await tell(tok, 'Do Re Mi 升級了！'); }
-    save(); i++; tok.bonus = i;
+/* 產生一回數字練習：step＝玩法，seed 用來每天換題目 */
+const numRound = (step, seed) => async tok => { const sets = upTo(NUM_SETS[step]); await solfaRound(tok, step, sets[seed % sets.length]); };
+
+/* ---------- 和弦 ---------- */
+const CHORDS = {
+  C: { name: 'C 和弦', icon: '🌈', dots: [[3, 3]], freqs: [392.00, 261.63, 329.63, 523.25], s: 3, hz: 523.25, open: 440.00, how: '用無名指，按住紅色螃蟹弦的第三格' },
+  Am: { name: 'A 小和弦', icon: '🐘', dots: [[0, 2]], freqs: [440.00, 261.63, 329.63, 440.00], s: 0, hz: 440.00, open: 392.00, how: '用中指，按住藍色小狗弦的第二格' },
+};
+const chordCard = (ch, hide, frets) => `<div class="mid2">${ch.icon}</div>${hide ? '<div class="huge">🙈</div>' : neckSVG({ dots: ch.dots, frets: frets || 4 })}`;
+const T = {
+  intro: ch => async tok => { show(chordCard(ch)); await tell(tok, `今天學${ch.name}。聽聽看它的聲音。`); strum(ch.freqs); await sleep(tok, 1500); say(`${ch.how}。按在格子裡面，靠近下面那條線。`); await tapNext(tok, chordCard(ch), '按好了', 40000); },
+  press: (ch, hide) => async tok => {
+    show(chordCard(ch, hide) + YES); await tell(tok, `${hide ? '不看圖卡，' : ''}按好${ch.name}，撥一下${sName(ch.s)}，聽聽看。`);
+    if (await hearNote(tok, ch.hz, 9000)) { ding(); await sleep(tok, 500); } else { show(chordCard(ch)); await tell(tok, `${ch.how}，再用力一點。`); }
+  },
+  onOff: (ch, times) => async tok => {
+    await tell(tok, '按下去，放開，按下去，放開。看到圓點就按，圓點不見就放開。每次都撥一下。');
+    for (let i = 0; i < times * 2; i++) {
+      const press = i % 2 === 0;
+      show(`<div class="mid2">${press ? ch.icon : '👐'}</div>${neckSVG({ dots: press ? ch.dots : [], hi: press ? undefined : ch.s })}${YES}`);
+      if (await hearNote(tok, press ? ch.hz : ch.open, 7000)) { tone(1319, audio().currentTime, .18, .12); deaf(250); await sleep(tok, 350); }
+    }
+    ding();
+  },
+  beat: (ch, bpm, bars) => async tok => { show(chordCard(ch)); await tell(tok, `按好${ch.name}，跟著拍子刷。`); await beatRound(tok, { bpm, cards: Array(bars || 1).fill(ch === CHORDS.C ? 'C' : 'Am'), icon: ch.icon }); },
+  shake: ch => async tok => { show(big('👋')); await tell(tok, '手放開，甩一甩。'); await T.press(ch)(tok); },
+  /* 換和弦：一個一個確認 */
+  swap: times => async tok => {
+    await tell(tok, '換和弦練習。看圖卡，換一個和弦，撥一下。慢慢來沒關係。');
+    for (let i = 0; i < times * 2; i++) { const ch = i % 2 ? CHORDS.Am : CHORDS.C; show(chordCard(ch) + YES); if (await hearNote(tok, ch.hz, 9000)) { tone(1319, audio().currentTime, .18, .12); deaf(250); await sleep(tok, 350); } }
+    ding();
+  },
+  swapBeat: (bpm, cards) => async tok => { show(chordCard(CHORDS[cards[0]])); await tell(tok, '跟著拍子刷。圖卡換了，和弦就要跟著換。'); await beatRound(tok, { bpm, cards, icon: '☀️' }); },
+};
+const chordIsland = ch => [
+  [T.intro(ch), T.press(ch), T.press(ch), T.beat(ch, 60, 1), T.shake(ch)],
+  [T.onOff(ch, 2), T.beat(ch, 60, 1), T.onOff(ch, 3), T.beat(ch, 60, 2), T.press(ch)],
+  [T.press(ch, true), T.onOff(ch, 3), T.beat(ch, 72, 2), T.press(ch, true), T.beat(ch, 84, 2)],
+];
+/* 每座島三個階段（學、練、挑戰），每個階段是一串「回」；回數比較多時從頭輪。seed 讓題目每天不同 */
+const ISLANDS = [
+  /* 0 出發島：數字 Do Re Mi */
+  seed => [
+    [numRound(0, seed), numRound(0, seed + 1), numRound(1, seed), numRound(0, seed + 2), numRound(1, seed + 2)],
+    [numRound(1, seed), numRound(2, seed), numRound(1, seed + 1), numRound(3, seed), numRound(2, seed + 1)],
+    [numRound(3, seed), numRound(2, seed + 2), numRound(3, seed + 1), numRound(1, seed + 3), numRound(3, seed + 2)],
+  ],
+  /* 1 彩虹島：C 和弦 */
+  () => chordIsland(CHORDS.C),
+  /* 2 大象島：Am 和弦 */
+  () => chordIsland(CHORDS.Am),
+  /* 3 太陽島：C 和 Am 互換 */
+  () => [
+    [T.press(CHORDS.C), T.press(CHORDS.Am), T.swap(2), T.swapBeat(60, ['C', 'C', 'Am', 'Am']), T.swap(2)],
+    [T.swap(3), T.swapBeat(60, ['C', 'C', 'Am', 'Am']), T.swapBeat(66, ['C', 'Am', 'C', 'Am']), T.swap(3), T.swapBeat(66, ['Am', 'Am', 'C', 'C'])],
+    [T.swapBeat(72, ['C', 'Am', 'C', 'Am']), T.press(CHORDS.Am, true), T.swapBeat(80, ['C', 'Am', 'C', 'Am']), T.press(CHORDS.C, true), T.swapBeat(72, ['Am', 'C', 'Am', 'C'])],
+  ],
+];
+const STAGE_NAMES = ['學', '練', '挑戰'];
+async function segSkill(tok, k, n) {
+  const lv = LEVELS[k.level], st = Math.min(2, k.stage[k.level] || 0), list = ISLANDS[k.level](k.n)[st];
+  /* 到了和弦的小島，先用一到兩回複習數字，再進今天的主題 */
+  const review = k.level === 0 ? 0 : n >= 4 ? 2 : 1, main = Math.max(1, n - review);
+  if (review) { show(big('🔢')); await tell(tok, '先複習數字 Do Re Mi。'); }
+  else { show(big(lv.icon)); ding([659, 784, 988]); await tell(tok, `今天的本領：${lv.say}！`); }
+  await runRounds(tok, review + main, async i => {
+    if (i < review) return numRound([1, 3, 2][(k.n + i) % 3], k.n + i)(tok);
+    if (review && i === review) { show(big(lv.icon)); ding([659, 784, 988]); await tell(tok, `今天的本領：${lv.say}！`); }
+    const j = i - review;
+    /* 大象島以後，每三次練習有一次用最後一回複習上一座島的和弦 */
+    if (k.level >= 2 && k.n % 3 === 2 && j === main - 1 && main > 1) { show(big(LEVELS[k.level - 1].icon)); await tell(tok, `回去${LEVELS[k.level - 1].name}玩一下！`); return pick(ISLANDS[k.level - 1](k.n)[1])(tok); }
+    return list[j % list.length](tok);
+  });
+}
+
+/* ---------- 4. 唱唱彈彈：有時間才進來 ---------- */
+/* 出發島：數字歌，[數字, 拍數]；max＝這首歌用到的最大數字 */
+const NUM_SONGS = [
+  { name: '瑪莉有隻小綿羊', icon: '🐑', max: 3, notes: [[3, 1], [2, 1], [1, 1], [2, 1], [3, 1], [3, 1], [3, 2], [2, 1], [2, 1], [2, 2], [3, 1], [3, 1], [3, 2]] },
+  { name: '熱十字麵包', icon: '🥐', max: 3, notes: [[3, 1], [2, 1], [1, 2], [3, 1], [2, 1], [1, 2], [1, 1], [1, 1], [2, 1], [2, 1], [3, 1], [2, 1], [1, 2]] },
+  { name: '樓梯歌', icon: '🪜', max: 4, notes: [[1, 1], [2, 1], [3, 1], [4, 1], [4, 1], [3, 1], [2, 1], [1, 1], [1, 1], [3, 1], [2, 1], [4, 1], [3, 1], [2, 1], [1, 2]] },
+  { name: '兩隻老虎', icon: '🐯', max: 5, notes: [[1, 1], [2, 1], [3, 1], [1, 1], [1, 1], [2, 1], [3, 1], [1, 1], [3, 1], [4, 1], [5, 2], [3, 1], [4, 1], [5, 2]] },
+  { name: '小蜜蜂', icon: '🐝', max: 5, notes: [[5, 1], [3, 1], [3, 2], [4, 1], [2, 1], [2, 2], [1, 1], [2, 1], [3, 1], [4, 1], [5, 1], [5, 1], [5, 2]] },
+  { name: '小星星', icon: '⭐', max: 6, notes: [[1, 1], [1, 1], [5, 1], [5, 1], [6, 1], [6, 1], [5, 2], [4, 1], [4, 1], [3, 1], [3, 1], [2, 1], [2, 1], [1, 2]] },
+];
+/* 數字歌：先聽 App 彈一次，再跟著亮起來的數字自己彈 */
+async function numberSong(tok, song) {
+  const bpm = 54, spb = 60 / bpm, ac = audio(), starts = []; let b = 0; for (const [, len] of song.notes) { starts.push(b); b += len; } const total = b;
+  const got = song.notes.map(() => false);
+  const row = on => `<div class="seq small">${song.notes.map(([n], j) => numBadge(n, j === on ? 'now' : got[j] ? 'done' : j < on ? 'past' : '')).join('')}</div>`;
+  const draw = on => show(`${row(on)}${on >= 0 && on < song.notes.length ? neckSVG({ stickers: true, hiNum: song.notes[on][0], frets: 3 }) : big(song.icon)}`);
+  draw(-1); await tell(tok, `${song.name}。先聽我彈一次，看數字。`);
+  deaf(total * spb * 1000 + 800); let p0 = performance.now() + 300, t0 = ac.currentTime + .3;
+  song.notes.forEach(([n], j) => pluck(noteHz(n), t0 + starts[j] * spb));
+  for (let j = 0; j < song.notes.length; j++) { await sleep(tok, p0 + starts[j] * spb * 1000 - performance.now()); draw(j); }
+  await sleep(tok, song.notes[song.notes.length - 1][1] * spb * 1000);
+  draw(-1); await tell(tok, '換你！聽到四聲之後，跟著亮起來的數字彈。');
+  show(`${row(-1)}<div class="count" id="cnt"></div>`);
+  p0 = performance.now() + 350; t0 = ac.currentTime + .35;
+  for (let i = 0; i < 4; i++) click(t0 + i * spb, true);
+  for (let i = 0; i < total; i++) click(t0 + (4 + i) * spb, false);
+  for (let i = 0; i < 4; i++) { await sleep(tok, p0 + i * spb * 1000 - performance.now()); const c = document.getElementById('cnt'); if (c) c.textContent = i + 1; }
+  LISTEN++;
+  try {
+    let cur = -1, streak = 0;
+    const end = p0 + (4 + total) * spb * 1000;
+    while (performance.now() < end) {
+      /* 每個音提早四分之一拍開始算，彈得稍微早一點也接受 */
+      const beat = (performance.now() - p0) / (spb * 1000) - 4 + .25; let j = -1; for (let x = 0; x < starts.length; x++) if (beat >= starts[x]) j = x;
+      if (j !== cur) { cur = j; streak = 0; if (j >= 0) draw(j); }
+      if (MIC && j >= 0 && !got[j]) { const f = MIC.pitch(); if (f && Math.abs(centsOff(f, noteHz(song.notes[j][0]))) < 70) { if (++streak >= 2) { got[j] = true; judge(true); draw(j); } } else if (f) streak = 0; }
+      await sleep(tok, 40);
+    }
+  } finally { LISTEN = Math.max(0, LISTEN - 1); }
+  const hit = got.filter(Boolean).length, stars = !MIC ? 3 : hit >= got.length * .6 ? 3 : hit >= got.length * .3 ? 2 : 1;
+  show(`${big(song.icon)}${row(-1)}<div class="stars3 pop">${'⭐'.repeat(stars)}</div>`); ding(stars === 3 ? [523, 659, 784, 1047] : [659, 784]); await sleep(tok, 1800);
+}
+/* 和弦歌：[MIDI 音高, 拍數]；bars＝每一小節的和弦，沒寫就整首用 chord */
+const SONGS = [
+  { id: 'open', name: '彩虹小曲', bpm: 76, icon: '🎠', chord: 'C', notes: [[64, 1], [64, 1], [67, 1], [67, 1], [69, 1], [69, 1], [67, 2], [64, 1], [64, 1], [62, 1], [62, 1], [60, 4], [67, 1], [67, 1], [69, 1], [69, 1], [72, 1], [69, 1], [67, 2], [64, 1], [67, 1], [64, 1], [62, 1], [60, 4]] },
+  { id: 'tigers', name: '兩隻老虎', bpm: 84, icon: '🐯', chord: 'C', lyric: '兩隻老虎，兩隻老虎，跑得快，跑得快。一隻沒有耳朵，一隻沒有尾巴，真奇怪，真奇怪。',
+    notes: [[60, 1], [62, 1], [64, 1], [60, 1], [60, 1], [62, 1], [64, 1], [60, 1], [64, 1], [65, 1], [67, 2], [64, 1], [65, 1], [67, 2], [67, .5], [69, .5], [67, .5], [65, .5], [64, 1], [60, 1], [67, .5], [69, .5], [67, .5], [65, .5], [64, 1], [60, 1], [60, 1], [55, 1], [60, 2], [60, 1], [55, 1], [60, 2]] },
+  { id: 'row', name: '划船歌', bpm: 66, icon: '🚣', chord: 'C', lyric: '划、划、划小船，輕輕順水流。快樂地、快樂地、快樂地、快樂地，人生像場夢。',
+    notes: [[60, 1], [60, 1], [60, 2 / 3], [62, 1 / 3], [64, 1], [64, 2 / 3], [62, 1 / 3], [64, 2 / 3], [65, 1 / 3], [67, 2], [72, 1 / 3], [72, 1 / 3], [72, 1 / 3], [67, 1 / 3], [67, 1 / 3], [67, 1 / 3], [64, 1 / 3], [64, 1 / 3], [64, 1 / 3], [60, 1 / 3], [60, 1 / 3], [60, 1 / 3], [67, 2 / 3], [65, 1 / 3], [64, 2 / 3], [62, 1 / 3], [60, 2]] },
+  { id: 'moon', name: '月亮小曲', bpm: 72, icon: '🌙', chord: 'Am', notes: [[69, 1], [72, 1], [76, 1], [72, 1], [69, 1], [72, 1], [76, 2], [76, 1], [74, 1], [72, 1], [71, 1], [69, 4], [69, 1], [72, 1], [76, 1], [72, 1], [69, 1], [72, 1], [76, 2], [76, 1], [74, 1], [72, 1], [71, 1], [69, 4]] },
+  { id: 'hide', name: '捉迷藏', bpm: 70, icon: '🙈', bars: ['C', 'C', 'Am', 'Am', 'C', 'C', 'Am', 'Am'], notes: [[60, 1], [64, 1], [67, 1], [64, 1], [60, 1], [64, 1], [67, 2], [69, 1], [72, 1], [76, 1], [72, 1], [69, 1], [72, 1], [76, 2], [67, 1], [64, 1], [60, 1], [64, 1], [67, 1], [64, 1], [60, 2], [76, 1], [72, 1], [69, 1], [72, 1], [69, 4]] },
+];
+/* 各島可以選的歌 */
+const SONG_MENU = [[], ['open', 'tigers', 'row'], ['moon', 'tigers', 'open'], ['hide', 'moon', 'row']];
+const SONG_MODES = [
+  { id: 'follow', icon: '🎵', say: '圖案跳一下，你就刷一下。可以一起唱喔！' },
+  { id: 'freeze', icon: '🛑', say: '木頭人遊戲！音樂停下來，看到紅色的牌子，手就要停住不能動！' },
+  { id: 'solo', icon: '🎤', say: '換你當主角！後面音樂會變小聲，你要自己繼續刷，不要停。' },
+  { id: 'fast', icon: '🚀', say: '這次會比較快，跟好喔！' },
+];
+const midiHz = m => 440 * Math.pow(2, (m - 69) / 12);
+async function playSong(tok, song, mode) {
+  const bpm = song.bpm * (mode.id === 'fast' ? 1.18 : 1), spb = 60 / bpm, ac = audio();
+  const total = Math.round(song.notes.reduce((s, n) => s + n[1], 0)), chordAt = i => CHORDS[song.bars ? song.bars[Math.min(song.bars.length - 1, Math.floor(i / 4))] : song.chord];
+  show(`<div class="mid2" id="el">${song.icon}</div><div class="count" id="cnt"></div><div id="bc">${chordCard(chordAt(0), false, 3)}</div>${song.lyric ? `<p class="hint">${song.lyric}</p>` : ''}`);
+  /* 木頭人：在樂句之間插入兩拍的停頓 */
+  const stops = mode.id === 'freeze' ? [8, 16, 24].filter(b => b < total).sort(() => Math.random() - .5).slice(0, 2) : [];
+  const shift = b => b + stops.filter(s => s <= b).length * 2, t0 = ac.currentTime + .35, p0 = performance.now() + 350;
+  for (let i = 0; i < 4; i++) click(t0 + i * spb, true);
+  let b = 0; for (const [m, len] of song.notes) { const quiet = mode.id === 'solo' && b >= total / 2; tone(midiHz(m), t0 + (4 + shift(b)) * spb, len * spb * .95, quiet ? .03 : .2, 'triangle'); b += len; }
+  const plan = []; for (let i = 0; i < total; i++) { plan[shift(i)] = i; strum(chordAt(i).freqs, t0 + (4 + shift(i)) * spb, mode.id === 'solo' && i >= total / 2 ? .03 : .1); }
+  const len = total + stops.length * 2; let shown = chordAt(0);
+  for (let i = 0; i < 4 + len; i++) {
+    await sleep(tok, p0 + i * spb * 1000 - performance.now());
+    const c = document.getElementById('cnt'), e = document.getElementById('el'), bi = plan[i - 4];
+    if (c) c.textContent = i < 4 ? i + 1 : '';
+    if (i >= 4 && e) { const stop = bi === undefined; e.textContent = stop ? '🛑' : mode.id === 'solo' && bi >= total / 2 ? '🎤' : song.icon; if (!stop) bounce(); }
+    /* 換和弦的歌：提早一拍換圖卡 */
+    if (bi !== undefined && bi + 1 < total && chordAt(bi + 1) !== shown) { shown = chordAt(bi + 1); const bc = document.getElementById('bc'); if (bc) { bc.innerHTML = chordCard(shown, false, 3); bc.classList.remove('pop'); void bc.offsetWidth; bc.classList.add('pop'); } }
+  }
+  await sleep(tok, spb * 1200);
+}
+async function segSong(tok, k, timeIsUp) {
+  const numbers = k.level === 0, menu = numbers ? NUM_SONGS.filter(s => s.max <= maxNum()) : SONG_MENU[k.level].map(id => SONGS.find(s => s.id === id));
+  show(big('🎵')); ding([659, 784, 988, 1175]);
+  await tell(tok, numbers ? '還有時間！來唱唱彈彈，用數字彈一首歌。' : `還有時間！來唱唱彈彈，用${LEVELS[k.level].say}伴奏。`);
+  let i = 0;
+  while (i < 4 && !(i > 0 && timeIsUp())) {
+    setRounds(i + 1, i);
+    const opts = [0, 1, 2].map(j => menu[(k.n + i + j) % menu.length]).filter((s, j, a) => a.indexOf(s) === j); let song = null;
+    show(`<div class="choice">${opts.map((s, j) => `<button data-s="${j}"><span>${s.icon}</span></button>`).join('')}</div>`);
+    stage().querySelectorAll('[data-s]').forEach(b => b.onclick = () => { song = opts[+b.dataset.s]; ding(); });
+    say('想彈哪一首？選一個！');
+    if (!await until(tok, () => song, 20000)) song = opts[0];
+    if (numbers) await numberSong(tok, song);
+    else {
+      const mode = SONG_MODES[(k.n + i) % SONG_MODES.length];
+      show(`${big(song.icon)}<div class="mid2">${mode.icon}</div>`); await tell(tok, `${song.name}。${mode.say}`);
+      await playSong(tok, song, mode); ding([523, 659, 784]);
+      show(`${big(song.icon)}<div class="stars3 pop">👏👏👏</div>`); await sleep(tok, 1200);
+    }
+    i++; tok.sang = i;
   }
 }
 
@@ -663,7 +768,7 @@ async function segSticker(tok, k) {
   show(`<div class="stickers">${STICKERS.map(s => `<button data-s="${s}">${s}</button>`).join('')}</div>`);
   stage().querySelectorAll('[data-s]').forEach(b => b.onclick = () => { chosen = b.dataset.s; });
   const lv = k.level;
-  say(`今天練完了！你做了暖身、節奏，練了${LEVELS[lv].say}，還唱了歌${tok.bonus ? '，還玩了數字 Do Re Mi' : ''}。你好棒！選一張貼紙吧！`);
+  say(`今天練完了！你做了暖身、節奏，練了${LEVELS[lv].say}${tok.sang ? '，還唱唱彈彈' : ''}。你好棒！選一張貼紙吧！`);
   await until(tok, () => chosen);
   const d = today(), prev = k.days[d];
   k.days[d] = { sticker: chosen, n: prev ? prev.n + 1 : 1 }; save();
@@ -727,11 +832,13 @@ function vParent() {
   <h2>設定檢查</h2><div class="card">${checks().map(c => `<div class="chk"><span class="ic">${c[0]}</span><div><b>${c[1]}</b><small>${c[2]}</small></div></div>`).join('')}
    <div class="row" style="margin-top:12px"><button class="btn sm" id="tm">測試麥克風</button><button class="btn sm" id="tv">試聽語音</button></div>
    <div id="mt" hidden><div class="meter"><i id="ml"></i></div></div><p class="small" id="tr" style="margin:8px 0 0"></p></div>
-  <h2>小朋友</h2><div class="card">${DB.kids.map(k => `<div class="krow"><span class="f" style="background:${k.tint}">${k.animal}</span><span class="n">${esc(k.name) || '（未命名）'}<br><span class="small" style="font-weight:400">${LEVELS[k.level].icon} ${LEVELS[k.level].name}（${STAGE_NAMES[Math.min(2, k.stage[k.level] || 0)]}）　練習了 ${Object.keys(k.days).length} 天<br>節奏：${RHYTHMS[k.rhythm.lv].icon} ${RHYTHMS[k.rhythm.lv].name}　Do Re Mi：${SOLFA_STEPS[k.solfa.step].name}</span></span><button class="btn ghost sm" data-e="${k.id}">修改</button></div>`).join('') || '<p class="small" style="margin:0 0 10px">還沒有小朋友。</p>'}
+  <h2>小朋友</h2><div class="card">${DB.kids.map(k => `<div class="krow"><span class="f" style="background:${k.tint}">${k.animal}</span><span class="n">${esc(k.name) || '（未命名）'}<br><span class="small" style="font-weight:400">${LEVELS[k.level].icon} ${LEVELS[k.level].name}（${STAGE_NAMES[Math.min(2, k.stage[k.level] || 0)]}）　練習了 ${Object.keys(k.days).length} 天<br>節奏：${RHYTHMS[k.rhythm.lv].icon} ${RHYTHMS[k.rhythm.lv].name}　暖身：${WARM_NAMES[k.warm.lv]}</span></span><button class="btn ghost sm" data-e="${k.id}">修改</button></div>`).join('') || '<p class="small" style="margin:0 0 10px">還沒有小朋友。</p>'}
    ${DB.kids.length < 6 ? '<button class="btn" id="add" style="margin-top:8px">新增小朋友</button>' : ''}</div>
   <h2>每週上課日</h2><div class="card"><div class="seg" id="cd">${DAYS.map((d, i) => `<button data-d="${i}" class="${s.classDay === i ? 'sel' : ''}">${d}</button>`).join('')}<button data-d="x" class="${s.classDay === null ? 'sel' : ''}">沒有固定</button></div>
    <p class="small" style="margin:10px 0 0">之後每日練習的內容會依上課日安排：上課後複習新內容，上課前把歌完整彈一遍。</p></div>
   <h2>每天練習多久</h2><div class="card"><div class="seg" id="mn"><button data-m="10" class="${s.minutes === 10 && !s.split ? 'sel' : ''}">10 分鐘</button><button data-m="15" class="${s.minutes === 15 && !s.split ? 'sel' : ''}">15 分鐘</button><button data-m="s" class="${s.split ? 'sel' : ''}">早晚各 7 分鐘</button></div></div>
+  <h2>老師教到數字幾</h2><div class="card"><div class="seg" id="mx">${[4, 5, 6].map(n => `<button data-x="${n}" class="${s.maxNum === n ? 'sel' : ''}">1 到 ${n}</button>`).join('')}</div>
+   <p class="small" style="margin:10px 0 0">數字練習和數字歌只會出現到這個數字。老師教了新的數字再往上調。</p></div>
   <h2>數字貼紙的位置（Do Re Mi）</h2><div class="card"><p class="small" style="margin-top:0">老師在琴上貼的數字 1–6。預設是最常見的位置，和老師貼的不一樣時再改。「不按」代表貼在琴頭、直接撥空弦。</p>
    ${[1, 2, 3, 4, 5, 6].map(n => `<div class="row" style="margin:6px 0"><span class="num" style="background:${STRINGS[s.notes[n][0]].color};color:${STRINGS[s.notes[n][0]].ink}">${n}</span>
     <select data-ns="${n}">${STRINGS.map((st, i) => `<option value="${i}" ${s.notes[n][0] === i ? 'selected' : ''}>${st.cname}${st.aname}弦（${st.note}）</option>`).join('')}</select>
@@ -747,6 +854,7 @@ function vParent() {
   b('cd').querySelectorAll('button').forEach(x => x.onclick = () => { DB.settings.classDay = x.dataset.d === 'x' ? null : +x.dataset.d; save(); vParent(); });
   b('mn').querySelectorAll('button').forEach(x => x.onclick = () => { if (x.dataset.m === 's') { DB.settings.split = true; DB.settings.minutes = 15; } else { DB.settings.split = false; DB.settings.minutes = +x.dataset.m; } save(); vParent(); });
   $.querySelectorAll('[data-ns],[data-nf]').forEach(x => x.onchange = () => { const n = x.dataset.ns || x.dataset.nf; DB.settings.notes[n][x.dataset.ns ? 0 : 1] = +x.value; save(); vParent(); });
+  b('mx').querySelectorAll('button').forEach(x => x.onclick = () => { DB.settings.maxNum = +x.dataset.x; save(); vParent(); });
   b('nr').onclick = () => { DB.settings.notes = JSON.parse(JSON.stringify(DEFAULT_NOTES)); save(); vParent(); };
   b('tv').onclick = () => { audio(); ding(); say('你好，我是烏克麗麗小島，我們一起來練習吧！'); b('tr').textContent = '有聽到「叮」和中文語音嗎？沒有的話請檢查靜音開關和音量。'; };
   b('tm').onclick = async () => {
@@ -831,7 +939,7 @@ function vEdit() {
   b('sv').onclick = () => {
     const name = b('nm').value.trim().slice(0, 12); if (!name) { toast('請輸入名字或小名'); return; }
     if (cur) { cur.name = name; cur.animal = animal; cur.level = level; }
-    else { const tint = TINTS.find(t => !DB.kids.some(k => k.tint === t)) || TINTS[DB.kids.length % TINTS.length]; DB.kids.push({ id: 'k' + Date.now().toString(36), name, animal, tint, createdAt: new Date().toISOString(), level, days: {}, stars: {}, n: 0, rhythm: { lv: 0, streak: 0 }, solfa: { step: 0, ok: 0 }, stage: {} }); }
+    else { const tint = TINTS.find(t => !DB.kids.some(k => k.tint === t)) || TINTS[DB.kids.length % TINTS.length]; DB.kids.push({ id: 'k' + Date.now().toString(36), name, animal, tint, createdAt: new Date().toISOString(), level, days: {}, stars: {}, n: 0, rhythm: { lv: 0, streak: 0 }, warm: { lv: 0, ok: 0 }, solfa: { step: 0, ok: 0 }, stage: {} }); }
     save(); go('parent');
   };
   if (cur) b('dl').onclick = () => { if (confirm(`確定刪除「${cur.name}」嗎？這位小朋友的紀錄會一起刪除，無法復原。`)) { DB.kids = DB.kids.filter(k => k.id !== cur.id); save(); go('parent'); } };
