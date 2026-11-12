@@ -102,7 +102,10 @@ function pluckBuffer(freq) {
 function pluck(freq, t, gain) {
   try {
     const ac = audio(), s = ac.createBufferSource(), g = ac.createGain();
-    s.buffer = pluckBuffer(freq); s.playbackRate.value = freq / s.buffer.trueHz; g.gain.value = gain === undefined ? .5 : gain;
+    const t0 = t || ac.currentTime;
+    s.buffer = pluckBuffer(freq); s.playbackRate.value = freq / s.buffer.trueHz;
+    /* 示範音在 0.9 秒內收掉，小朋友跟著彈時，麥克風才不會還聽到 App 自己的聲音 */
+    g.gain.setValueAtTime(gain === undefined ? .5 : gain, t0); g.gain.setTargetAtTime(0, t0 + .55, .08);
     s.connect(g).connect(ac.destination); s.start(t || ac.currentTime);
   } catch (e) {}
 }
@@ -280,7 +283,7 @@ async function hearSeq(tok, hzs, onStep) {
     if (i > 0 && MIC && Math.abs(centsOff(hzs[i], hzs[i - 1])) < 50) { const c = MIC.nHits; await until(tok, () => MIC.nHits > c, 1800); }
     const r = await hearNote(tok, hzs[i], 8000);
     if (r) { good++; tone(1319, audio().currentTime, .18, .12); deaf(250); await sleep(tok, 260); }
-    else { pluck(hzs[i]); deaf(1200); await sleep(tok, 1200); }
+    else { pluck(hzs[i]); deaf(950); await sleep(tok, 1200); }
   }
   if (onStep) onStep(hzs.length);
   return good;
@@ -324,7 +327,7 @@ async function startSession(kidId) {
     lit(0); await tell(tok, '今天有五個遊戲。先暖身，'); lit(1); await tell(tok, '再跟大象玩節奏，'); lit(2); await tell(tok, `然後是今天的本領，${lv.say}，`); lit(3); await tell(tok, '接著唱歌，'); lit(5); await tell(tok, '最後選貼紙。拿好你的烏克麗麗，開始囉！');
     const segs = [segWarm, segBeat, segSkill, segSong];
     for (let i = 0; i < segs.length; i++) {
-      mark(i); tok.skip = false;
+      mark(i); tok.skip = false; setRounds(0, 0);
       try { await segs[i](tok, k, counts[i]); } catch (e) { if (e !== SKIP) throw e; hush(); if (MIC) MIC.mutes = []; }
     }
     /* 加分關：前四段做完還有時間，才進 Do Re Mi */
@@ -362,7 +365,7 @@ async function findStrings(tok, count, blind) {
     show(`<div class="mid2" id="an">${blind ? '❓' : st.animal}</div>${neckSVG({ hi: blind ? undefined : i, frets: 2 })}${YES}`);
     if (blind) await tell(tok, '聽聽看，是哪一條？'); else await tell(tok, `${st.aname}弦`);
     let got = null;
-    for (let t = 0; t < 2 && !got; t++) { pluck(st.hz); deaf(1300); got = await hearNote(tok, st.hz, 7000); if (!got && t === 0) await tell(tok, '再聽一次'); }
+    for (let t = 0; t < 2 && !got; t++) { pluck(st.hz); deaf(950); got = await hearNote(tok, st.hz, 7000); if (!got && t === 0) await tell(tok, '再聽一次'); }
     show(`<div class="mid2 pop">${got ? '🎉' : st.animal}</div>${neckSVG({ hi: i, frets: 2 })}`);
     if (got) ding(); else await tell(tok, `是${st.aname}弦`);
     await sleep(tok, 800);
@@ -486,7 +489,7 @@ const T = {
   meet: i => async tok => {
     const st = STRINGS[i];
     show(`<div class="mid2">${st.animal}</div>${neckSVG({ hi: i, frets: 2 })}${YES}`);
-    await tell(tok, `這是${sName(i)}。`); pluck(st.hz); deaf(1300); await sleep(tok, 1400);
+    await tell(tok, `這是${sName(i)}。`); pluck(st.hz); deaf(950); await sleep(tok, 1400);
     await tell(tok, '換你撥撥看！'); if (await hearNote(tok, st.hz, 9000)) { ding(); await sleep(tok, 600); }
   },
   find: (n, blind) => async tok => { if (blind) await tell(tok, '這次不給你看顏色，只用耳朵聽喔！'); await findStrings(tok, n, blind); },
@@ -613,7 +616,7 @@ async function solfaRound(tok, k, step, nums) {
     let good = 0;
     for (const n of nums) {
       show(`<div class="seq">${numBadge(n, 'now big')}</div>${neck(n)}${YES}`);
-      await tell(tok, `${NUM_ZH[n]}，${SOLFA[n]}。`); pluck(noteHz(n)); deaf(1300); await sleep(tok, 1300);
+      await tell(tok, `${NUM_ZH[n]}，${SOLFA[n]}。`); pluck(noteHz(n)); deaf(950); await sleep(tok, 1300);
       await tell(tok, '找到這個數字的貼紙，撥撥看！');
       if (await hearNote(tok, noteHz(n), 9000)) { good++; ding(); await sleep(tok, 600); }
     }
@@ -624,7 +627,7 @@ async function solfaRound(tok, k, step, nums) {
     for (const n of nums) {
       show(`<div class="seq"><span class="num now big" style="background:#bbb;color:#fff">？</span></div>${neck(0)}${YES}`);
       await tell(tok, '聽聽看，這是哪一個數字？'); let got = null;
-      for (let t = 0; t < 2 && !got; t++) { pluck(noteHz(n)); deaf(1300); got = await hearNote(tok, noteHz(n), 7000); if (!got && t === 0) await tell(tok, '再聽一次'); }
+      for (let t = 0; t < 2 && !got; t++) { pluck(noteHz(n)); deaf(950); got = await hearNote(tok, noteHz(n), 7000); if (!got && t === 0) await tell(tok, '再聽一次'); }
       show(`<div class="seq">${numBadge(n, 'now big')}</div>${neck(n)}`); if (got) { good++; ding(); }
       await tell(tok, `是${NUM_ZH[n]}，${SOLFA[n]}。`);
     }
@@ -785,7 +788,7 @@ function vTuner() {
   <div class="card small">抱琴時由上到下是：${STRINGS.map(x => `${x.animal} ${x.note}（${x.cname}）`).join('、')}。顏色和老師貼的貼紙一樣。新的弦和小琴很容易走音，建議每次練習前都調一次。</div></div>`;
   const b = id => document.getElementById(id);
   b('bk').onclick = () => go('parent');
-  $.querySelectorAll('[data-i]').forEach(x => x.onclick = () => { const s = STRINGS[+x.dataset.i]; pluck(s.hz, undefined, .6); deaf(1500); });
+  $.querySelectorAll('[data-i]').forEach(x => x.onclick = () => { const s = STRINGS[+x.dataset.i]; pluck(s.hz, undefined, .6); deaf(950); });
   if (!micCapable()) { b('ms').textContent = '這個網址不能使用麥克風，只能用按鈕聽標準音來調。'; return; }
   micOpen().then(m => {
     let hold = 0;
